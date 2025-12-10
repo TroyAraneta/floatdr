@@ -1,49 +1,64 @@
-import { StyleSheet, Text, Keyboard, TouchableWithoutFeedback, Alert } from 'react-native'
-import { Link, useRouter } from 'expo-router'
-import { useState } from 'react'
-import { supabase } from '../../lib/supabase'  // <-- make sure you have this file
+import {
+  StyleSheet,
+  Text,
+  Keyboard,
+  TouchableWithoutFeedback,
+  Alert,
+  View,
+  Image,
+} from "react-native";
+import { Link, useRouter } from "expo-router";
+import { useState } from "react";
+import { supabase } from "../../lib/supabase";
 
-import ThemedView from '../../components/ThemedView'
-import ThemedText from '../../components/ThemedText'
-import Spacer from '../../components/Spacer'
-import ThemedButton from '../../components/ThemedButton'
-import ThemedTextInput from "../../components/ThemedTextInput"
+import ThemedView from "../../components/ThemedView";
+import ThemedText from "../../components/ThemedText";
+import ThemedButton from "../../components/ThemedButton";
+import ThemedTextInput from "../../components/ThemedTextInput";
 
 const Login = () => {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   const handleSubmit = async () => {
     if (!email || !password) {
-      Alert.alert("Missing Info", "Please enter both email and password.")
-      return
+      Alert.alert("Missing Info", "Please enter both email and password.");
+      return;
     }
 
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
 
     if (error) {
-      Alert.alert("Login Failed", error.message)
+      Alert.alert("Login Failed", error.message);
     } else {
-      Alert.alert("Success", "Logged in successfully!")
-      router.replace("/forum") // or whichever tab/screen you want after login
+      Alert.alert("Welcome back!", "You’ve successfully logged in 🩵");
+      router.replace("/(dashboard)/home");
     }
-  }
+  };
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <ThemedView style={styles.container}>
-        <Spacer />
-        <ThemedText title={true} style={styles.title}>
-          Login to Your Account
-        </ThemedText>
+        {/* 🌊 Logo or Symbol */}
+        <View style={styles.logoContainer}>
+          <Image
+            source={require("../../assets/img/FDLogo.png")} // optional logo
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <ThemedText title style={styles.title}>
+            FloatDr Forum
+          </ThemedText>
+          <Text style={styles.subtitle}>Log in</Text>
+        </View>
 
-        <Spacer />
+        {/* Email Input */}
         <ThemedTextInput
-          style={{ marginBottom: 20, width: "80%" }}
+          style={styles.input}
           placeholder="Email"
           value={email}
           onChangeText={setEmail}
@@ -51,42 +66,100 @@ const Login = () => {
           autoCapitalize="none"
         />
 
+        {/* Password Input */}
         <ThemedTextInput
-          style={{ marginBottom: 20, width: "80%" }}
+          style={styles.input}
           placeholder="Password"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
         />
 
-        <ThemedButton onPress={handleSubmit} disabled={loading}>
-          <Text style={{ color: '#f2f2f2' }}>
+        {/* Login Button */}
+        <ThemedButton
+          onPress={handleSubmit}
+          disabled={loading}
+          style={styles.loginButton}
+        >
+          <Text style={styles.loginText}>
             {loading ? "Logging in..." : "Login"}
           </Text>
         </ThemedButton>
 
-        <Spacer height={100} />
-        <Link href="/register" replace>
-          <ThemedText style={{ textAlign: "center" }}>
-            Register instead
-          </ThemedText>
-        </Link>
+        {/* Register Link */}
+        <View style={styles.bottomText}>
+          <Text style={{ color: "#666" }}>Don’t have an account? </Text>
+          <Link href="/register" replace>
+            <Text style={styles.linkText}>Register</Text>
+          </Link>
+        </View>
       </ThemedView>
     </TouchableWithoutFeedback>
-  )
-}
+  );
+};
 
-export default Login
+export default Login;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#e6f4f9",
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  logoContainer: {
+    alignItems: "center",
+    marginBottom: 40,
+  },
+  logo: {
+    width: 90,
+    height: 90,
+    marginBottom: 10,
   },
   title: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#0a84ff",
+    marginBottom: 6,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#555",
+  },
+  input: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    marginBottom: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  loginButton: {
+    width: "100%",
+    backgroundColor: "#0a84ff",
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  loginText: {
+    color: "#fff",
     textAlign: "center",
-    fontSize: 18,
-    marginBottom: 30
-  }
-})
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  bottomText: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 30,
+  },
+  linkText: {
+    color: "#0a84ff",
+    fontWeight: "600",
+  },
+});

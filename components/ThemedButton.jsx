@@ -1,14 +1,15 @@
-import { Pressable, StyleSheet } from 'react-native'
-import { Colors } from '../constants/colors'
+import { Pressable, StyleSheet } from "react-native";
+import { Colors } from "../constants/colors";
 
-function ThemedButton({ style, ...props }) {
-
+function ThemedButton({ style, children, ...props }) {
   return (
-    <Pressable 
-      style={({ pressed }) => [styles.btn, pressed && styles.pressed, style]} 
+    <Pressable
+      style={({ pressed }) => [styles.btn, pressed && styles.pressed, style]}
       {...props}
-    />
-  )
+    >
+      {children}
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -16,11 +17,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     padding: 18,
     borderRadius: 6,
-    marginVertical: 10
+    marginVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pressed: {
-    opacity: 0.5
+    opacity: 0.5,
   },
-})
+});
 
-export default ThemedButton
+export default ThemedButton;

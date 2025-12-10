@@ -1,22 +1,18 @@
 import React from "react";
-import { View, Image, StyleSheet } from "react-native";
+import { View, Image, Text, StyleSheet, StatusBar } from "react-native";
 
 export default function CustomHeader() {
   return (
     <View style={styles.header}>
-      {/* App Logo */}
-      <Image
-        source={require("../assets/img/FDLogo.png")}
-        style={styles.logo}
-        resizeMode="contain"
-      />
-
-      {/* App Title as an Image */}
-      <Image
-        source={require("../assets/img/FLOATDR.png")}
-        style={styles.appName}
-        resizeMode="contain"
-      />
+      <StatusBar barStyle="light-content" backgroundColor="#1877f2" />
+      <View style={styles.content}>
+        <Image
+          source={require("../assets/img/trans-logo_white.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.title}>                Forum</Text>
+      </View>
     </View>
   );
 }
@@ -24,24 +20,34 @@ export default function CustomHeader() {
 const styles = StyleSheet.create({
   header: {
     backgroundColor: "#1877f2",
-    paddingTop: 55,
-    paddingBottom: 20,
-    flexDirection: "row",
+    paddingTop: 20,
+    paddingBottom: 10,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4, // smaller gap between logo and text
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 4,
-    elevation: 4,
+    elevation: 5,
+  },
+  content: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   logo: {
-    width: 50,   // slightly bigger
-    height: 50,  // slightly bigger
+    width: 180,
+    height: 120,
+    marginBottom: -5, // slight overlap to remove visual gap
   },
-  appName: {
-    width: 130,  // slightly smaller than before
-    height: 32,
+  title: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "700",
+    fontFamily: "sans-serif-medium",
+    letterSpacing: 1,
+    marginTop: -40, // ensure no extra space above text
+    marginBottom: 15
   },
 });

@@ -1,20 +1,25 @@
 import { Tabs, usePathname } from "expo-router";
-import { useColorScheme, View, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { useColorScheme, View, StyleSheet, StatusBar } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/colors";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import CustomHeader from "../../components/CustomHeader";
 
 export default function DashboardLayout() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme] ?? Colors.light;
-
-  // Get current route to decide when to hide header
   const pathname = usePathname();
-  const hideHeader = pathname.includes("CreatePost"); // hide on CreatePost
+  const insets = useSafeAreaInsets();
+
+  // Hide header for certain screens (optional)
+  const hideHeader =
+    pathname.includes("Profile") || pathname.includes("thread/");
 
   return (
-    <View style={styles.container}>
-      {/* ✅ Show the header unless we’re on CreatePost */}
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#1877f2" />
+
+      {/* ✅ Show header unless on specific screens */}
       {!hideHeader && <CustomHeader />}
 
       <Tabs
@@ -23,8 +28,8 @@ export default function DashboardLayout() {
           tabBarStyle: {
             backgroundColor: theme.navBackground,
             borderTopWidth: 0,
-            height: 80,
-            paddingBottom: 10,
+            height: 60 + insets.bottom,
+            paddingBottom: Math.max(insets.bottom - 5, 5),
             paddingTop: 5,
           },
           tabBarLabelStyle: { fontSize: 12 },
@@ -46,6 +51,7 @@ export default function DashboardLayout() {
           }}
         />
 
+        {/* ✅ Updated Forum tab to use your (forumtab) folder */}
         <Tabs.Screen
           name="forum"
           options={{
@@ -101,14 +107,6 @@ export default function DashboardLayout() {
             ),
           }}
         />
-
-        {/* 👇 Hidden from tab bar */}
-        <Tabs.Screen
-          name="CreatePost"
-          options={{
-            href: null,
-          }}
-        />
       </Tabs>
     </View>
   );
@@ -117,5 +115,6 @@ export default function DashboardLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#fff",
   },
 });

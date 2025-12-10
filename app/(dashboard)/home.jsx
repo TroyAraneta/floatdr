@@ -1,136 +1,218 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ImageBackground } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  StyleSheet,
+  View,
+  ScrollView,
+  ActivityIndicator,
+  Animated,
+  TouchableOpacity,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { useRouter, useFocusEffect } from "expo-router";
+import { supabase } from "../../lib/supabase";
+import ThemedText from "../../components/ThemedText";
+import Spacer from "../../components/Spacer";
+import ThemedView from "../../components/ThemedView";
 
-export default function HomeScreen() {
+const Home = () => {
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState("");
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Setup video player but do NOT auto-play. This keeps it static unless you want autoplay later.
+  const player = useVideoPlayer(require("../../assets/vid/float_intro.mp4"), (player) => {
+    player.loop = true;
+    player.muted = false;
+    // do not call player.play() here — we want a static preview
+  });
+
+  // Fetch username
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (user) {
+          const { data } = await supabase
+            .from("profiles")
+            .select("username")
+            .eq("id", user.id)
+            .single();
+
+          setUsername(data?.username || "Float Enthusiast");
+        }
+      } catch (err) {
+        // silent fallback
+        setUsername("Float Enthusiast");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  // Defensive: pause video when leaving the screen
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        try {
+          if (player) {
+            player.pause?.();
+            // don't force reset position — keep preview frame as-is
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+    }, [player])
+  );
+
+  // Fade-in animation
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 700,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  if (loading)
+    return (
+      <ThemedView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0a84ff" />
+      </ThemedView>
+    );
 
   return (
-    <View style={styles.container}>
-      {/* Title */}
-      <Text style={styles.title}>FloatDr Forum</Text>
-      <Text style={styles.subtitle}>Welcome, Alex</Text>
-
-      {/* Video Preview Card */}
-      <TouchableOpacity style={styles.videoCard} activeOpacity={0.9}>
-        <ImageBackground
-          source={{
-            uri: "https://images.unsplash.com/photo-1610276198568-eb6d0ff53e48?auto=format&fit=crop&w=800&q=60",
-          }}
-          style={styles.videoBackground}
-          imageStyle={{ borderRadius: 15 }}
-        >
-          <View style={styles.overlay}>
-            <Ionicons name="play-circle" size={48} color="#fff" />
-            <Text style={styles.videoText}>Floating for Anxiety</Text>
-          </View>
-        </ImageBackground>
-      </TouchableOpacity>
-
-      {/* Menu Buttons */}
-      <View style={styles.menuContainer}>
-        <MenuButton
-          icon="chatbubble-outline"
-          text="Start Discussion"
-          onPress={() => router.push("/(dashboard)/forum")}
-        />
-        <MenuButton
-          icon="calendar-outline"
-          text="My Appointments"
-          onPress={() => router.push("/(dashboard)/schedule")}
-        />
-        <MenuButton
-          icon="medkit-outline"
-          text="Premium Content"
-          onPress={() => router.push("/(dashboard)/library")}
-        />
+    <ScrollView
+      style={{ backgroundColor: "#e6f4f9" }}
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* 👋 Welcome */}
+      <View style={styles.headerContainer}>
+        <ThemedText style={styles.welcomeText}>
+          Welcome, <ThemedText style={styles.username}>{username}</ThemedText>
+        </ThemedText>
       </View>
-    </View>
-  );
-}
 
-/* Reusable Menu Button Component */
-function MenuButton({ icon, text, onPress }) {
-  return (
-    <TouchableOpacity style={styles.menuButton} onPress={onPress} activeOpacity={0.8}>
-      <View style={styles.menuIconContainer}>
-        <Ionicons name={icon} size={22} color="#3C5A99" />
-      </View>
-      <Text style={styles.menuText}>{text}</Text>
-      <Ionicons name="chevron-forward" size={20} color="#aaa" />
-    </TouchableOpacity>
-  );
-}
+      <Spacer height={20} />
 
-/* Styles */
+      {/* 🎥 Video card — CLEAN preview (no overlay text, no big play button, no native controls) */}
+      <Animated.View style={[styles.videoCard, { opacity: fadeAnim }]}>
+        <View style={styles.videoOverlay}>
+          <VideoView
+            player={player}
+            style={styles.video}
+            allowsFullscreen={false}
+            allowsPictureInPicture={false}
+            showsControls={false} // hide native controls
+          />
+        </View>
+      </Animated.View>
+
+      <Spacer height={25} />
+
+      {/* 📋 Navigation Options */}
+      <Animated.View style={{ opacity: fadeAnim }}>
+        <View style={styles.navSection}>
+          <TouchableOpacity
+            style={styles.navCard}
+            activeOpacity={0.85}
+            onPress={() => router.push("/(dashboard)/forum")}
+          >
+            <Ionicons name="chatbubbles-outline" size={22} color="#0a84ff" />
+            <ThemedText style={styles.navText}>Start Discussion</ThemedText>
+            <Ionicons name="chevron-forward" size={18} color="#aaa" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.navCard} activeOpacity={0.85}>
+            <Ionicons name="calendar-outline" size={22} color="#0a84ff" />
+            <ThemedText style={styles.navText}>My Appointments</ThemedText>
+            <Ionicons name="chevron-forward" size={18} color="#aaa" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.navCard} activeOpacity={0.85}>
+            <Ionicons name="medkit-outline" size={22} color="#0a84ff" />
+            <ThemedText style={styles.navText}>Premium Content</ThemedText>
+            <Ionicons name="chevron-forward" size={18} color="#aaa" />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      <Spacer height={80} />
+    </ScrollView>
+  );
+};
+
+export default Home;
+
 const styles = StyleSheet.create({
   container: {
+    padding: 20,
+    paddingBottom: 100,
+  },
+  loadingContainer: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
-    paddingTop: 60,
-    paddingHorizontal: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#e6f4f9",
   },
-  title: {
-    fontSize: 22,
+  headerContainer: {
+    alignSelf: "flex-start",
+  },
+  welcomeText: {
+    fontSize: 26,
     fontWeight: "700",
-    color: "#000",
-    marginBottom: 5,
+    color: "#1C1E21",
   },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: "500",
-    color: "#222",
-    marginBottom: 20,
+  username: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: "#0a84ff",
   },
   videoCard: {
-    borderRadius: 15,
+    borderRadius: 20,
     overflow: "hidden",
-    marginBottom: 30,
+    backgroundColor: "#000",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  videoBackground: {
-    height: 160,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  overlay: {
-    backgroundColor: "rgba(0,0,0,0.3)",
+  video: {
     width: "100%",
-    height: "100%",
-    borderRadius: 15,
-    justifyContent: "center",
-    alignItems: "center",
+    height: 210,
+    backgroundColor: "#000",
   },
-  videoText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
+  videoOverlay: {
+    position: "relative",
+  },
+  navSection: {
     marginTop: 10,
   },
-  menuContainer: {
-    gap: 15,
-  },
-  menuButton: {
+  navCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 15,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
     shadowColor: "#000",
     shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
+    shadowRadius: 4,
     elevation: 2,
   },
-  menuIconContainer: {
-    backgroundColor: "#EAF0FA",
-    borderRadius: 10,
-    padding: 6,
-    marginRight: 15,
-  },
-  menuText: {
+  navText: {
     flex: 1,
     fontSize: 16,
-    color: "#333",
+    fontWeight: "500",
+    color: "#1C1E21",
+    marginLeft: 12,
   },
 });

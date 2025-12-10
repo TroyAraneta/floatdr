@@ -1,172 +1,244 @@
-import { useState, useEffect } from "react"
-import { StyleSheet, TextInput, Alert, Image } from "react-native"
-import { supabase } from "../../lib/supabase"
-import Spacer from "../../components/Spacer"
-import ThemedText from "../../components/ThemedText"
-import ThemedView from "../../components/ThemedView"
-import ThemedButton from "../../components/ThemedButton"
+import React, { useState, useEffect } from "react";
+import {
+  StyleSheet,
+  Alert,
+  Image,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
+  ScrollView,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../../lib/supabase";
+import ThemedText from "../../components/ThemedText";
+import ThemedView from "../../components/ThemedView";
+import Spacer from "../../components/Spacer";
+import { useRouter } from "expo-router";
 
 const Profile = () => {
-  const [loading, setLoading] = useState(true)
-  const [username, setUsername] = useState("")
-  const [bio, setBio] = useState("")
-  const [avatarUrl, setAvatarUrl] = useState("")
-  const [email, setEmail] = useState("")
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState("");
+  const [bio, setBio] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [email, setEmail] = useState("");
 
-  // Load current user profile
   useEffect(() => {
     const loadProfile = async () => {
       const {
         data: { user },
-        error: userError
-      } = await supabase.auth.getUser()
+        error: userError,
+      } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        Alert.alert("Error", "No user logged in.")
-        setLoading(false)
-        return
+        Alert.alert("Error", "No user logged in.");
+        setLoading(false);
+        return;
       }
 
-      setEmail(user.email)
+      setEmail(user.email);
 
       const { data, error } = await supabase
         .from("profiles")
         .select("username, bio, avatar_url")
         .eq("id", user.id)
-        .single()
+        .single();
 
       if (error && error.code !== "PGRST116") {
-        Alert.alert("Error loading profile", error.message)
+        Alert.alert("Error loading profile", error.message);
       } else if (data) {
-        setUsername(data.username || "")
-        setBio(data.bio || "")
-        setAvatarUrl(data.avatar_url || "")
+        setUsername(data.username || "");
+        setBio(data.bio || "");
+        setAvatarUrl(data.avatar_url || "");
       }
 
-      setLoading(false)
-    }
+      setLoading(false);
+    };
 
-    loadProfile()
-  }, [])
+    loadProfile();
+  }, []);
 
-  // Save profile updates
-  const handleSave = async () => {
-    setLoading(true)
-    const {
-      data: { user },
-      error: userError
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      Alert.alert("Error", "No user logged in.")
-      setLoading(false)
-      return
-    }
-
-    const updates = {
-      id: user.id,
-      username,
-      bio,
-      avatar_url: avatarUrl,
-      updated_at: new Date(),
-    }
-
-    const { error } = await supabase.from("profiles").upsert(updates)
-    setLoading(false)
-
-    if (error) {
-      Alert.alert("Update Failed", error.message)
-    } else {
-      Alert.alert("Success", "Profile updated successfully ✅")
-    }
-  }
-
-  // Logout
   const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) Alert.alert("Logout Failed", error.message)
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      Alert.alert("Logout Failed", error.message);
+    } else {
+      router.replace("/(auth)/login");
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0a84ff" />
+      </View>
+    );
   }
 
   return (
-    <ThemedView style={styles.container} safe={true}>
-      <ThemedText title={true} style={styles.heading}>
-        My Profile
-      </ThemedText>
-
-      <Spacer />
-
-      {avatarUrl ? (
-        <Image
-          source={{ uri: avatarUrl }}
-          style={{ width: 100, height: 100, borderRadius: 50, marginBottom: 20 }}
-        />
-      ) : null}
-
-      <ThemedText>Email: {email}</ThemedText>
-      <Spacer />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Username"
-        value={username}
-        onChangeText={setUsername}
-      />
-      <TextInput
-        style={[styles.input, { height: 100, textAlignVertical: "top" }]}
-        placeholder="Bio"
-        value={bio}
-        onChangeText={setBio}
-        multiline
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Avatar URL (optional)"
-        value={avatarUrl}
-        onChangeText={setAvatarUrl}
-      />
-
-      <ThemedButton onPress={handleSave} disabled={loading}>
-        <ThemedText style={styles.buttonText}>
-          {loading ? "Saving..." : "Save Changes"}
+    <ThemedView style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Page Title */}
+        <ThemedText title style={styles.title}>
+          Profile
         </ThemedText>
-      </ThemedButton>
+        <Spacer height={10} />
 
-      <Spacer height={20} />
+        {/* Profile Card */}
+        <TouchableOpacity
+          style={styles.profileCard}
+          activeOpacity={0.8}
+          onPress={() => router.push("/(stack)/profileDetails")}
+        >
+          <Image
+            source={{
+              uri:
+                avatarUrl ||
+                "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+            }}
+            style={styles.profileImage}
+          />
+          <View style={{ flex: 1 }}>
+            <ThemedText style={styles.profileName}>
+              {username || "User"}
+            </ThemedText>
+            <ThemedText style={styles.profileEmail}>{email}</ThemedText>
+            {bio ? (
+              <ThemedText style={styles.profileBio}>{bio}</ThemedText>
+            ) : null}
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#aaa" />
+        </TouchableOpacity>
 
-      <ThemedButton onPress={handleLogout} style={{ backgroundColor: "#c0392b" }}>
-        <ThemedText style={styles.buttonText}>Logout</ThemedText>
-      </ThemedButton>
+        <Spacer height={20} />
+
+        {/* Menu Section */}
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/(stack)/editProfile")}
+          >
+            <Ionicons name="create-outline" size={22} color="#0a84ff" />
+            <ThemedText style={styles.menuText}>Edit Profile</ThemedText>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/(stack)/saveForum")}
+          >
+            <Ionicons name="bookmark-outline" size={22} color="#0a84ff" />
+            <ThemedText style={styles.menuText}>Saved Forums</ThemedText>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem}>
+            <Ionicons name="settings-outline" size={22} color="#0a84ff" />
+            <ThemedText style={styles.menuText}>Settings</ThemedText>
+          </TouchableOpacity>
+        </View>
+
+        <Spacer height={30} />
+
+        {/* Logout Button */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={20} color="#fff" />
+          <ThemedText style={styles.logoutText}>Logout</ThemedText>
+        </TouchableOpacity>
+
+        <Spacer height={60} />
+      </ScrollView>
     </ThemedView>
-  )
-}
+  );
+};
 
-export default Profile
+export default Profile;
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
+    flex: 1,
+    backgroundColor: "#e6f4f9",
+  },
+  scrollContainer: {
+    padding: 20,
+    paddingBottom: 100,
+  },
+  loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    backgroundColor: "#e6f4f9",
   },
-  heading: {
-    fontWeight: "bold",
+  title: {
     fontSize: 22,
-    textAlign: "center",
-    marginBottom: 20,
+    fontWeight: "700",
+    color: "#1c1e21",
   },
-  input: {
-    width: "100%",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  buttonText: {
+  profileImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    marginRight: 15,
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111",
+  },
+  profileEmail: {
+    fontSize: 14,
+    color: "#555",
+  },
+  profileBio: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 4,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  menuText: {
+    fontSize: 16,
+    color: "#333",
+    marginLeft: 10,
+  },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0a84ff",
+    borderRadius: 14,
+    paddingVertical: 14,
+  },
+  logoutText: {
     color: "#fff",
-    fontWeight: "bold",
-    textAlign: "center",
+    fontWeight: "600",
+    fontSize: 16,
+    marginLeft: 8,
   },
-})
+});
