@@ -133,16 +133,16 @@ const ThreadView = () => {
       const username = profile?.username || "Anonymous";
       const avatar = profile?.avatar_url || null;
 
-      const { error: insertError } = await supabase.from("forum_replies").insert([
-        {
-          thread_id: id,
-          user_id: user.id,
-          content: replyText,
-          created_at: new Date(),
-          username,
-          user_avatar: avatar,
-        },
-      ]);
+      const { error: insertError } = await supabase
+        .from("forum_replies")
+        .insert([
+          {
+            thread_id: id,
+            user_id: user.id,
+            content: replyText,
+          },
+        ]);
+
 
       if (insertError) throw insertError;
 

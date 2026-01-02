@@ -15,7 +15,7 @@ import ThemedView from "../../components/ThemedView";
 import Spacer from "../../components/Spacer";
 import { useRouter } from "expo-router";
 
-const Profile = () => {
+const Menu = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
@@ -153,7 +153,7 @@ const Profile = () => {
   );
 };
 
-export default Profile;
+export default Menu;
 
 const styles = StyleSheet.create({
   screen: {

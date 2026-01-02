@@ -13,7 +13,7 @@ export default function DashboardLayout() {
 
   // Hide header for certain screens (optional)
   const hideHeader =
-    pathname.includes("Profile") || pathname.includes("thread/");
+    pathname.includes("Menu") || pathname.includes("thread/");
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -95,9 +95,9 @@ export default function DashboardLayout() {
         />
 
         <Tabs.Screen
-          name="profile"
+          name="menu"
           options={{
-            title: "Profile",
+            title: "Menu",
             tabBarIcon: ({ focused, color }) => (
               <Ionicons
                 name={focused ? "person" : "person-outline"}

@@ -12,49 +12,65 @@ import {
   Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system/legacy"; // ✅ modern import
-import { Buffer } from "buffer";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/SupabaseAuthContext";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 const CreateThread = () => {
   const router = useRouter();
-  const { category: routeCategory } = useLocalSearchParams();
+  const rawSlug = useLocalSearchParams().slug;
+  const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+  const { user, authChecked } = useAuth();
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [image, setImage] = useState(null);
+  const [imageRatio, setImageRatio] = useState(1);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [categoryId, setCategoryId] = useState(null);
 
-  // ✅ Fetch category ID
+  useEffect(() => {
+    if (authChecked && !user) {
+      router.replace("/(tabs)/menu");
+    }
+  }, [authChecked, user]);
+
+  const [category, setCategory] = useState(null);
+
   useEffect(() => {
     const fetchCategory = async () => {
-      if (!routeCategory) return;
+      if (!slug) { // guard against bad navigation
+        Alert.alert("Error", "Missing category.");
+        router.back();
+        return;
+      }
+
       const { data, error } = await supabase
         .from("forum_categories")
-        .select("id")
-        .eq("name", routeCategory)
+        .select("id, name")
+        .eq("slug", slug)
         .single();
 
       if (error || !data) {
-        Alert.alert("Error", `Category '${routeCategory}' not found.`);
-      } else {
-        setCategoryId(data.id);
+        Alert.alert("Error", "Category not found.");
+        return;
       }
-    };
-    fetchCategory();
-  }, [routeCategory]);
 
-  // ✅ Choose Image (no crop screen)
+      setCategory(data);
+    };
+
+    fetchCategory();
+  }, [slug]);
+
+  // 🖼️ Choose image
   const handleChooseImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      return Alert.alert("Permission denied", "Please allow access to photos.");
+      return Alert.alert("Permission denied", "Please allow photo access.");
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -64,96 +80,102 @@ const CreateThread = () => {
     });
 
     if (!result.canceled) {
-      setImage(result.assets[0].uri);
+      const asset = result.assets[0];
+        Image.getSize(
+          asset.uri,
+          (width, height) => {
+            setImageRatio(width / height); // 👈 landscape > 1, portrait < 1
+            setImage(asset.uri);
+          },
+          () => {
+            setImage(asset.uri);
+          }
+        );
     }
   };
 
-  // ✅ Upload Image to Supabase
-  const uploadImage = async (uri, userId) => {
-    if (!uri) throw new Error("No image selected");
+  // ☁️ Upload image to Supabase
+  const uploadImage = async (uri) => {
     try {
       setUploading(true);
 
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      if (!fileInfo.exists) throw new Error("File does not exist");
+      const fileExt = uri.split(".").pop() || "jpg";
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
 
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
+      const formData = new FormData();
+      formData.append("file", {
+        uri,
+        name: fileName,
+        type: `image/${fileExt}`,
       });
 
-      const fileExt = uri.split(".").pop() || "jpg";
-      const fileName = `${userId}/${Date.now()}.${fileExt}`;
-
-      // ✅ Use base64 upload with proper options
-      const { data, error: uploadError } = await supabase.storage
+      const { error } = await supabase.storage
         .from("post-images")
-        .upload(fileName, base64, {
+        .upload(filePath, formData, {
           contentType: `image/${fileExt}`,
           upsert: false,
-          // 👇 This flag tells Supabase it's a base64 string, not binary
-          base64: true,
         });
 
-      if (uploadError) throw uploadError;
+      if (error) throw error;
 
-      const { data: publicData } = supabase.storage
+      const { data } = supabase.storage
         .from("post-images")
-        .getPublicUrl(fileName);
+        .getPublicUrl(filePath);
 
-      return publicData.publicUrl;
+      return data.publicUrl;
     } catch (err) {
-      Alert.alert("Upload Failed", err.message);
-      console.error("Upload error:", err);
+      Alert.alert("Upload failed", err.message);
       return null;
     } finally {
       setUploading(false);
     }
   };
 
-  // ✅ Create Thread
+
+  // 🚀 Create thread
   const handleCreateThread = async () => {
     if (!title.trim())
-      return Alert.alert("Missing Question", "Please enter your discussion topic.");
+      return Alert.alert("Missing title", "Please enter a discussion title.");
+
     if (!content.trim() && !image)
-      return Alert.alert("Empty Post", "Add some thoughts or attach an image.");
-    if (!categoryId) return Alert.alert("Error", "Invalid category.");
+      return Alert.alert("Empty post", "Add text or an image.");
+
+    if (!category)
+      return Alert.alert("Error", "Invalid category.");
 
     try {
       setLoading(true);
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
 
-      if (userError || !user)
-        return Alert.alert("Error", "You must be logged in.");
+      const imageUrl = image ? await uploadImage(image) : null;
 
-      const imageUrl = image ? await uploadImage(image, user.id) : null;
-
-      const { error: insertError } = await supabase.from("forum_threads").insert([
+      const { error } = await supabase.from("forum_threads").insert([
         {
-          category_id: categoryId,
-          user_id: user.id,
+          category_id: category.id,
+          author_id: user.id,
           title,
-          content,
+          body: content,
           image_url: imageUrl,
-          created_at: new Date(),
         },
       ]);
 
-      if (insertError) throw insertError;
 
-      Alert.alert("Posted!", "Your float discussion has been created 🩵");
+      if (error) throw error;
+
+      Alert.alert("Posted!", "Your discussion is live 🩵");
       router.replace("/(dashboard)/forum");
     } catch (err) {
       Alert.alert("Error", err.message);
     } finally {
+      setLoading(false);
       setTitle("");
       setContent("");
       setImage(null);
-      setLoading(false);
     }
   };
+
+  // ⛔ Wait for auth check
+  if (!authChecked) return null;
 
   return (
     <KeyboardAvoidingView
@@ -168,7 +190,7 @@ const CreateThread = () => {
         {/* 🔙 Header */}
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.push("/(dashboard)/forum")}
+            onPress={() => router.back()}
             style={styles.backButton}
           >
             <Ionicons name="arrow-back" size={24} color="#0a84ff" />
@@ -183,34 +205,40 @@ const CreateThread = () => {
           <View style={styles.categoryPill}>
             <Ionicons name="pricetag-outline" size={16} color="#0a84ff" />
             <ThemedText style={styles.categoryText}>
-              {routeCategory || "Float Discussions"}
+              {category?.name || "Loading..."}
             </ThemedText>
           </View>
 
-          {/* 📝 Title */}
           <TextInput
             style={styles.questionInput}
-            placeholder="Start a discussion about float therapy..."
+            placeholder="Start a discussion..."
             placeholderTextColor="#666"
             multiline
             value={title}
             onChangeText={setTitle}
           />
 
-          {/* 🧠 Content */}
           <TextInput
             style={styles.detailsInput}
-            placeholder="Share your float experience, thoughts, or questions..."
+            placeholder="Share your thoughts..."
             placeholderTextColor="#999"
             multiline
             value={content}
             onChangeText={setContent}
           />
 
-          {/* 🖼️ Image Preview */}
           {image && (
             <View style={styles.imageBox}>
-              <Image source={{ uri: image }} style={styles.previewImage} />
+              <Image
+                source={{ uri: image }}
+                style={[
+                  styles.previewImage,
+                  {
+                    height: imageRatio < 1 ? 360 : 220, // 👈 taller for portrait
+                  },
+                ]}
+                resizeMode="contain"
+              />
               <TouchableOpacity
                 style={styles.removeImageBtn}
                 onPress={() => setImage(null)}
@@ -223,29 +251,27 @@ const CreateThread = () => {
           {uploading && (
             <View style={styles.uploading}>
               <ActivityIndicator size="small" color="#0a84ff" />
-              <ThemedText style={{ marginLeft: 8 }}>Uploading image...</ThemedText>
+              <ThemedText style={{ marginLeft: 8 }}>
+                Uploading image...
+              </ThemedText>
             </View>
           )}
 
-          {/* ➕ Add Image */}
           {!image && (
-            <TouchableOpacity onPress={handleChooseImage} style={styles.addImageRow}>
+            <TouchableOpacity
+              onPress={handleChooseImage}
+              style={styles.addImageRow}
+            >
               <Ionicons name="image-outline" size={20} color="#0a84ff" />
               <ThemedText style={styles.addImageText}>Add Photo</ThemedText>
             </TouchableOpacity>
           )}
 
-          {/* 🚀 Post Button */}
           <View style={styles.submitBox}>
             <ThemedButton
               onPress={handleCreateThread}
-              disabled={
-                !title.trim() || (!content.trim() && !image) || loading || uploading
-              }
-              style={[
-                styles.postButton,
-                (!title.trim() || (!content.trim() && !image)) && { opacity: 0.6 },
-              ]}
+              disabled={loading || uploading}
+              style={styles.postButton}
             >
               <ThemedText style={styles.postText}>
                 {loading ? "Posting..." : "Post Discussion"}
@@ -269,30 +295,18 @@ const styles = StyleSheet.create({
     paddingTop: 55,
     paddingBottom: 8,
   },
-  backButton: {
-    marginRight: 10,
-    padding: 4,
-  },
-  headerTitle: {
-    fontWeight: "700",
-    fontSize: 22,
-    color: "#1a1a1a",
-  },
+  backButton: { marginRight: 10 },
+  headerTitle: { fontSize: 22, fontWeight: "700" },
   card: {
     backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
-    marginTop: 10,
     marginHorizontal: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 3,
+    marginTop: 10,
   },
   categoryPill: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
     backgroundColor: "#e3f2fd",
     borderRadius: 20,
     paddingHorizontal: 10,
@@ -309,27 +323,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     fontSize: 16,
-    color: "#050505",
   },
   detailsInput: {
     backgroundColor: "#f4f8fa",
     borderRadius: 10,
     padding: 12,
-    fontSize: 15,
-    color: "#050505",
     marginTop: 10,
     minHeight: 100,
     textAlignVertical: "top",
   },
-  imageBox: {
-    position: "relative",
-    marginTop: 12,
-    borderRadius: 10,
-    overflow: "hidden",
-  },
+  imageBox: { marginTop: 12, borderRadius: 10, overflow: "hidden" },
   previewImage: {
     width: "100%",
-    height: 220,
   },
   removeImageBtn: {
     position: "absolute",
@@ -339,33 +344,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 4,
   },
-  uploading: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  addImageRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-  },
-  addImageText: {
-    color: "#0a84ff",
-    marginLeft: 6,
-    fontWeight: "600",
-  },
-  submitBox: {
-    marginTop: 24,
-  },
+  uploading: { flexDirection: "row", marginTop: 8 },
+  addImageRow: { flexDirection: "row", marginTop: 14 },
+  addImageText: { marginLeft: 6, fontWeight: "600", color: "#0a84ff" },
+  submitBox: { marginTop: 24 },
   postButton: {
     backgroundColor: "#0a84ff",
     borderRadius: 10,
     paddingVertical: 12,
   },
-  postText: {
-    color: "#fff",
-    textAlign: "center",
-    fontWeight: "700",
-    fontSize: 16,
-  },
+  postText: { color: "#fff", textAlign: "center", fontWeight: "700" },
 });

@@ -9,172 +9,246 @@ import {
   TextInput,
   Alert,
   Image,
-  ActionSheetIOS,
-  Platform,
   Modal,
   Pressable,
   Text,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import ThemedText from "../../components/ThemedText";
+import useMembershipStatus from "../../hooks/useMembershipStatus";
 
-const Forum = () => {
-  const [threads, setThreads] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("Mind");
-  const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [user, setUser] = useState(null);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [selectedThread, setSelectedThread] = useState(null);
-
-  const fixedCategories = ["Mind", "Body", "Spirit"];
+export default function Forum() {
   const router = useRouter();
 
-  // 🧍‍♂️ Check user authentication
+  const [threads, setThreads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
+  const [imageRatios, setImageRatios] = useState({}); 
+  const [showMemberModal, setShowMemberModal] = useState(false);
+  const [menuThread, setMenuThread] = useState(null); 
+  const [userId, setUserId] = useState(null);
+
+  const { isMember, loading: membershipLoading } = useMembershipStatus();
+
+  const categories = [
+    { name: "Mind", slug: "mind" },
+    { name: "Body", slug: "body" },
+    { name: "Spirit", slug: "spirit" },
+  ];
+
   useEffect(() => {
-    const checkUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data?.user) {
-        Alert.alert("Access denied", "Only members can use the forum.");
-        router.push("/(auth)/login");
-      } else {
-        setUser(data.user);
-      }
-    };
-    checkUser();
+    supabase.auth.getUser().then(({ data }) => {
+      setUserId(data?.user?.id || null);
+    });
   }, []);
 
-  // 🧠 Fetch threads
+  const [selectedCategory, setSelectedCategory] = useState(categories[0]);
+
+  /* -------------------------------------------------- */
+  /* Fetch Threads                                      */
+  /* -------------------------------------------------- */
   const fetchThreads = async () => {
     try {
       setLoading(true);
-      const { data: categoryData } = await supabase
+
+      if (!selectedCategory?.slug) {
+        console.warn("No category selected");
+        return;
+      }
+
+      const { data: category, error: categoryError } = await supabase
         .from("forum_categories")
         .select("id")
-        .eq("name", selectedCategory)
+        .eq("slug", selectedCategory.slug)
         .single();
 
-      if (!categoryData) throw new Error("Category not found.");
+      if (categoryError || !category) {
+        console.error("Category not found:", selectedCategory.slug);
+        return;
+      }
 
       const { data, error } = await supabase
-        .from("forum_threads")
-        .select(`
-          id,
-          title,
-          content,
-          created_at,
-          image_url,
-          user_id,
-          profiles ( username, avatar_url )
-        `)
-        .eq("category_id", categoryData.id)
-        .order("created_at", { ascending: false });
+      .from("forum_threads")
+      .select(`
+        id,
+        title,
+        body,
+        created_at,
+        image_url,
+        author_id,
+        profiles (
+          username,
+          avatar_url
+        )
+      `)
+      .eq("category_id", category.id)
+      .order("created_at", { ascending: false });
+
 
       if (error) throw error;
       setThreads(data || []);
     } catch (err) {
-      console.error("Error loading threads:", err.message);
+      console.error(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchThreads();
-  }, [selectedCategory]);
 
+  /* -------------------------------------------------- */
+  /* Membership Gate                                    */
+  /* -------------------------------------------------- */
+  useFocusEffect(
+    useCallback(() => {
+      if (!membershipLoading && !isMember) {
+        setShowMemberModal(true);
+      }
+    }, [membershipLoading, isMember])
+  );
+
+  /* -------------------------------------------------- */
+  /* Load Threads                                       */
+  /* -------------------------------------------------- */
+  useEffect(() => {
+    if (!membershipLoading && isMember) {
+      fetchThreads();
+    }
+  }, [selectedCategory, membershipLoading, isMember]);
+
+  /* -------------------------------------------------- */
+  /* Pull To Refresh                                    */
+  /* -------------------------------------------------- */
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchThreads();
     setRefreshing(false);
   }, [selectedCategory]);
 
-  const handleMenuPress = (thread) => {
-    setSelectedThread(thread);
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [
-            "Cancel",
-            "Report Forum",
-            "Save Forum",
-            ...(user?.id === thread.user_id ? ["Delete Forum"] : []),
-          ],
-          destructiveButtonIndex: user?.id === thread.user_id ? 3 : undefined,
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) handleReport(thread);
-          else if (buttonIndex === 2) handleSave(thread);
-          else if (buttonIndex === 3 && user?.id === thread.user_id)
-            deleteThread(thread.id);
-        }
-      );
-    } else {
-      setMenuVisible(true);
-    }
-  };
-
-  const handleReport = (thread) => {
-    Alert.alert("Reported", `You have reported "${thread.title}".`);
-  };
-
-  const handleSave = (thread) => {
-    Alert.alert("Saved", `You have saved "${thread.title}" for later.`);
-  };
-
-  const deleteThread = async (id) => {
-    Alert.alert("Confirm", "Delete this thread?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          const { error } = await supabase
-            .from("forum_threads")
-            .delete()
-            .eq("id", id);
-          if (error) Alert.alert("Error", "Failed to delete thread.");
-          else {
-            Alert.alert("Deleted", "Thread removed.");
-            fetchThreads();
-          }
-        },
-      },
-    ]);
-  };
-
-  const filteredThreads = threads.filter((t) =>
-    t.title.toLowerCase().includes(search.toLowerCase())
+  /* -------------------------------------------------- */
+  /* Filter                                             */
+  /* -------------------------------------------------- */
+  const filteredThreads = threads.filter(thread =>
+    thread.title
+      .toLowerCase()
+      .includes((search || "").toLowerCase())
   );
+
+
+  /* -------------------------------------------------- */
+  /* Render                                             */
+  /* -------------------------------------------------- */
+  if (membershipLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  // -------------------------------------------------- //
+  // Save Thread                                       //
+  // -------------------------------------------------- //
+  const handleSaveThread = async (thread) => {
+    if (!thread || !userId) return;
+
+    const { error } = await supabase
+      .from("saved_threads") 
+      .insert({
+        user_id: userId,    
+        thread_id: thread.id,
+      });
+
+    if (error) {
+      Alert.alert("Already saved or error occurred");
+      console.error(error);
+    } else {
+      Alert.alert("Thread saved");
+    }
+
+    setMenuThread(null); // close menu
+  };
+
+  // -------------------------------------------------- //
+  // Delete Thread                                     //
+  // -------------------------------------------------- //
+  const handleDeleteThread = async (thread) => {
+    Alert.alert(
+      "Delete thread?",
+      "This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const { error } = await supabase
+              .from("forum_threads")
+              .delete()
+              .eq("id", thread.id)
+              .eq("author_id", userId);
+
+            if (error) {
+              Alert.alert("Failed to delete");
+              console.error(error);
+            } else {
+              setThreads((prev) =>
+                prev.filter((t) => t.id !== thread.id)
+              );
+            }
+
+            setMenuThread(null);
+          },
+        },
+      ]
+    );
+  };
+
+  // -------------------------------------------------- // 
+  // Report Thread                                     //
+  // -------------------------------------------------- //
+  const handleReportThread = async (thread) => {
+    await supabase.from("moderation_reports").insert({
+      thread_id: thread.id,
+      reporter_id: userId,
+      reason: "Inappropriate content",
+    });
+
+    if (error) {
+      console.error(error);
+      Alert.alert("Failed to report");
+    } else {
+      Alert.alert("Reported");
+    }
+    setMenuThread(null);
+  };
+
+
 
   return (
     <View style={styles.container}>
-      {/* 🔍 Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={18} color="#555" style={{ marginRight: 8 }} />
+      {/* Search */}
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={18} color="#666" />
         <TextInput
+          placeholder="Search threads..."
           style={styles.searchInput}
-          placeholder="Search topics..."
-          placeholderTextColor="#999"
-          value={search}
           onChangeText={setSearch}
         />
       </View>
 
-      {/* 🌊 Category Tabs */}
-      <View style={styles.tabRow}>
-        {fixedCategories.map((cat) => (
+      {/* Categories */}
+      <View style={styles.tabs}>
+        {categories.map((cat) => (
           <TouchableOpacity
-            key={cat}
-            onPress={() => setSelectedCategory(cat)}
+            key={cat.slug}
             style={[
               styles.tab,
               selectedCategory === cat && styles.tabActive,
             ]}
+            onPress={() => setSelectedCategory(cat)}
           >
             <ThemedText
               style={[
@@ -182,305 +256,317 @@ const Forum = () => {
                 selectedCategory === cat && styles.tabTextActive,
               ]}
             >
-              {cat}
+              {cat.name}
             </ThemedText>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* 💬 Threads */}
+      {/* Threads */}
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
       >
-        {loading && <ActivityIndicator color="#0a84ff" style={{ marginTop: 20 }} />}
+        {loading && <ActivityIndicator style={{ marginTop: 30 }} />}
+
         {!loading && filteredThreads.length === 0 && (
-          <ThemedText style={styles.emptyText}>No threads yet.</ThemedText>
+          <ThemedText style={styles.emptyText}>
+            No threads yet.
+          </ThemedText>
         )}
 
         {filteredThreads.map((thread) => (
           <TouchableOpacity
             key={thread.id}
-            style={styles.threadCard}
-            activeOpacity={0.85}
+            style={styles.card}
             onPress={() =>
               router.push({
-                pathname: "/(dashboard)/thread",
-                params: { threadId: thread.id },
+                pathname: "/forum/thread",
+                params: { id: thread.id },
               })
             }
           >
-            <View style={styles.threadHeader}>
-              {thread.profiles?.avatar_url ? (
-                <Image
-                  source={{ uri: thread.profiles.avatar_url }}
-                  style={styles.avatar}
-                />
-              ) : (
-                <View style={styles.defaultAvatar}>
-                  <Ionicons name="person" size={20} color="#666" />
-                </View>
-              )}
+            <View style={styles.header}>
+              <Image
+                source={{
+                  uri:
+                    thread.profiles?.avatar_url ||
+                    "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                }}
+                style={styles.avatar}
+              />
+
               <View style={{ flex: 1 }}>
-                <ThemedText style={styles.threadTitle}>{thread.title}</ThemedText>
-                <ThemedText style={styles.threadMeta}>
+                <ThemedText style={styles.title}>{thread.title}</ThemedText>
+                <ThemedText style={styles.meta}>
                   {thread.profiles?.username || "User"} ·{" "}
                   {new Date(thread.created_at).toLocaleDateString()}
                 </ThemedText>
               </View>
+
               <TouchableOpacity
+                onPress={() => setMenuThread(thread)}
                 style={styles.menuButton}
-                onPress={() => handleMenuPress(thread)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="ellipsis-vertical" size={18} color="#999" />
+                <Ionicons name="ellipsis-vertical" size={20} color="#666" />
               </TouchableOpacity>
+
             </View>
 
-            <ThemedText style={styles.threadPreview} numberOfLines={2}>
-              {thread.content}
+            <ThemedText
+              numberOfLines={thread.image_url ? 2 : 4}
+              style={styles.preview}
+            >
+              {thread.body}
             </ThemedText>
 
-            {/* 🖼️ Display thread image if available */}
+
+
             {thread.image_url && (
-              <Image
-                source={{ uri: thread.image_url }}
-                style={styles.threadImage}
-                resizeMode="cover"
-              />
-            )}
+            <Image
+              source={{ uri: thread.image_url }} // image URL from Supabase
+              style={[
+                styles.image, // base style
+                {
+                  height:
+                    imageRatios[thread.id] && imageRatios[thread.id] < 1
+                      ? 300 // portrait → taller
+                      : 180, // landscape → normal
+                },
+              ]}
+              resizeMode="contain" // NEVER crop forum images
+              onLoad={(e) => {
+                const { width, height } = e.nativeEvent.source;
+                setImageRatios((prev) => ({
+                  ...prev,
+                  [thread.id]: width / height, // store ratio per thread
+                }));
+              }}
+            />
+          )}
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      {/* 📱 Android Modal Menu */}
-      <Modal
-        transparent
-        visible={menuVisible}
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
+      {/* New Thread */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() =>
+          router.push({
+            pathname: "/(stack)/createThread",
+            params: { slug: selectedCategory.slug },
+          })
+        }
       >
+        <Ionicons name="add" size={22} color="#fff" />
+        <ThemedText style={styles.fabText}>New Thread</ThemedText>
+      </TouchableOpacity>
+
+      {/* Member Modal */}
+      <Modal transparent visible={showMemberModal} animationType="fade">
+        <Pressable style={styles.overlay}>
+          <View style={styles.modal}>
+            <Ionicons name="lock-closed" size={36} color="#0a84ff" />
+            <ThemedText style={styles.modalTitle}>
+              Members Only
+            </ThemedText>
+            <ThemedText style={styles.modalText}>
+              Forum access is limited to members.
+            </ThemedText>
+
+            <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalBtn, styles.secondaryBtn]}
+              onPress={() => {
+                setShowMemberModal(false);
+                router.back();
+              }}
+            >
+              <ThemedText style={styles.secondaryText}>
+                Go Back
+              </ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modalBtn}
+              onPress={() => {
+                setShowMemberModal(false);
+                router.replace("/(dashboard)/menu");
+              }}
+            >
+              <ThemedText style={{ color: "#fff" }}>
+                Go to Menu
+              </ThemedText>
+            </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+      <Modal transparent visible={!!menuThread} animationType="fade">
         <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setMenuVisible(false)}
+          style={styles.overlay}
+          onPress={() => setMenuThread(null)} // tap outside to close
         >
           <View style={styles.menuModal}>
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={() => {
-                handleReport(selectedThread);
-                setMenuVisible(false);
-              }}
+              onPress={() => handleSaveThread(menuThread)}
             >
-              <Text style={styles.menuItemText}>Report Forum</Text>
+              <Ionicons name="bookmark-outline" size={18} />
+              <Text style={styles.menuText}>Save</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={() => {
-                handleSave(selectedThread);
-                setMenuVisible(false);
-              }}
+              onPress={() => { handleReportThread(menuThread); }}
             >
-              <Text style={styles.menuItemText}>Save Forum</Text>
+              <Ionicons name="flag-outline" size={18} />
+              <Text style={styles.menuText}>Report</Text>
             </TouchableOpacity>
-            {user?.id === selectedThread?.user_id && (
+
+            {menuThread?.author_id === userId && (
               <TouchableOpacity
                 style={styles.menuItem}
-                onPress={() => {
-                  deleteThread(selectedThread.id);
-                  setMenuVisible(false);
-                }}
+                onPress={() => handleDeleteThread(menuThread)}
               >
-                <Text style={[styles.menuItemText, { color: "red" }]}>
-                  Delete Forum
-                </Text>
+                <Ionicons name="trash-outline" size={18} color="red" />
+                <Text style={[styles.menuText, { color: "red" }]}>Delete</Text>
               </TouchableOpacity>
             )}
+            
           </View>
         </Pressable>
       </Modal>
 
-      {/* ➕ Floating Button */}
-      <TouchableOpacity
-        style={styles.newThreadBtn}
-        onPress={async () => {
-          const { data } = await supabase.auth.getUser();
-          if (data?.user) {
-            router.push({
-              pathname: "/(stack)/createThread",
-              params: { category: selectedCategory },
-            });
-          } else {
-            Alert.alert("Login required", "Only members can post threads.");
-          }
-        }}
-      >
-        <Ionicons name="add" size={22} color="#fff" />
-        <ThemedText style={styles.newThreadText}>New Thread</ThemedText>
-      </TouchableOpacity>
     </View>
   );
-};
+}
 
-export default Forum;
-
+/* -------------------------------------------------- */
+/* Styles                                              */
+/* -------------------------------------------------- */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#e6f4f9",
-  },
-  searchContainer: {
+  container: { flex: 1, backgroundColor: "#e6f4f9" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  searchBox: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
-    marginHorizontal: 20,
-    marginTop: 18,
+    margin: 16,
+    padding: 12,
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: "#333",
-  },
-  tabRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 14,
-    marginHorizontal: 20,
-  },
+  searchInput: { marginLeft: 8, flex: 1 },
+
+  tabs: { flexDirection: "row", justifyContent: "space-around" },
   tab: {
-    flex: 1,
-    marginHorizontal: 4,
     backgroundColor: "#fff",
+    padding: 10,
     borderRadius: 10,
-    paddingVertical: 10,
+    width: "30%",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
   },
-  tabActive: {
-    backgroundColor: "#0a84ff",
-  },
-  tabText: {
-    fontSize: 15,
-    color: "#666",
-    fontWeight: "500",
-  },
-  tabTextActive: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 100,
-  },
-  threadCard: {
+  tabActive: { backgroundColor: "#0a84ff" },
+  tabText: { color: "#555" },
+  tabTextActive: { color: "#fff", fontWeight: "600" },
+
+  card: {
     backgroundColor: "#fff",
-    borderRadius: 16,
+    margin: 16,
     padding: 16,
-    marginTop: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
+    borderRadius: 16,
   },
-  threadHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
-  defaultAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#EAF2F8",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  threadTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1C1E21",
-  },
-  threadMeta: {
-    fontSize: 13,
-    color: "#777",
-    marginTop: 2,
-  },
-  threadPreview: {
-    fontSize: 14,
-    color: "#444",
-    marginTop: 10,
-  },
-  threadImage: {
-    width: "100%",
-    height: 180,
+  header: { flexDirection: "row", alignItems: "center" },
+  avatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
+  title: { fontSize: 16, fontWeight: "600" },
+  meta: { fontSize: 12, color: "#777" },
+  preview: { marginTop: 10, color: "#555" },
+  image: {
+    width: "100%", // fill card width
     borderRadius: 10,
     marginTop: 10,
+    backgroundColor: "#f4f8fa", // helps portrait images visually
   },
-  menuButton: {
-    padding: 6,
-  },
-  emptyText: {
-    textAlign: "center",
-    color: "#777",
-    marginTop: 30,
-  },
-  newThreadBtn: {
+
+
+  fab: {
     position: "absolute",
-    bottom: 25,
+    bottom: 30,
     alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: "#0a84ff",
-    paddingHorizontal: 22,
-    paddingVertical: 12,
+    flexDirection: "row",
+    padding: 14,
     borderRadius: 30,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
   },
-  newThreadText: {
-    color: "#fff",
-    marginLeft: 6,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  modalOverlay: {
+  fabText: { color: "#fff", marginLeft: 6 },
+
+  overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  modal: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 16,
+    width: "80%",
+    alignItems: "center",
+  },
+  modalTitle: { fontSize: 18, fontWeight: "700", marginTop: 10 },
+  modalText: { textAlign: "center", marginTop: 8 },
+  modalBtn: {
+    marginTop: 20,
+    backgroundColor: "#0a84ff",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+  },
+  emptyText: { textAlign: "center", marginTop: 40, color: "#777" },
+  modalActions: {
+  flexDirection: "row",
+  gap: 12,
+  marginTop: 20,
+  },
+
+  secondaryBtn: {
+    backgroundColor: "#f1f1f1",
+  },
+
+  secondaryText: {
+    color: "#333",
+    fontWeight: "600",
   },
   menuModal: {
     backgroundColor: "#fff",
     borderRadius: 14,
-    width: "80%",
-    paddingVertical: 10,
+    paddingVertical: 8,
+    width: 200,
+    elevation: 5, // Android shadow
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
+
   menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
-  menuItemText: {
-    fontSize: 16,
-    color: "#333",
+
+  menuText: {
+    marginLeft: 12,
+    fontSize: 15,
+  },
+
+  menuButton: {
+    padding: 6,
+    borderRadius: 20,
   },
 });

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { supabase } from "../../lib/supabase";
-import useAdminStatus from "../hooks/useAdminStatus";
+import useAdminStatus from "../../hooks/useAdminStatus";
 
 export default function AdminDashboard() {
   const { isAdmin, loading: adminLoading } = useAdminStatus();

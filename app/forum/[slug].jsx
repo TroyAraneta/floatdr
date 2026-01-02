@@ -15,29 +15,53 @@ import ThemedButton from "../../components/ThemedButton";
 import { Ionicons } from "@expo/vector-icons";
 
 const ForumCategory = () => {
-  const { id, name } = useLocalSearchParams(); // ✅ category id + name
+  const { slug } = useLocalSearchParams();
   const router = useRouter();
 
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [category, setCategory] = useState(null);
+
+  // ✅ Fetch category details
+  useEffect(() => {
+    const fetchCategory = async () => {
+      const { data, error } = await supabase
+        .from("forum_categories")
+        .select("id, name")
+        .eq("slug", slug)
+        .single();
+
+      if (error || !data) {
+        console.error("Category not found:", slug);
+        setLoading(false);
+        return;
+      }
+
+      setCategory(data);
+    };
+
+    fetchCategory();
+  }, [slug]);
 
   // ✅ Fetch threads by category
   const fetchThreads = async () => {
-    setLoading(true);
+  if (!category) return;
+
+  setLoading(true);
     try {
       const { data, error } = await supabase
         .from("forum_threads")
         .select(`
           id,
           title,
-          content,
+          body,
           image_url,
           created_at,
-          user_id,
-          profiles ( id, username, avatar_url )
+          author_id,
+          profiles ( username, avatar_url )
         `)
-        .eq("category_id", id)
+        .eq("category_id", category.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -49,6 +73,7 @@ const ForumCategory = () => {
     }
   };
 
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchThreads();
@@ -57,7 +82,7 @@ const ForumCategory = () => {
 
   useEffect(() => {
     fetchThreads();
-  }, [id]);
+  }, [category]);
 
   return (
     <View style={styles.container}>
@@ -69,13 +94,13 @@ const ForumCategory = () => {
       >
         <View style={styles.headerRow}>
           <ThemedText title style={styles.heading}>
-            {name || "Forum"}
+          {category?.name || "Forum"}
           </ThemedText>
           <TouchableOpacity
             onPress={() =>
               router.push({
                 pathname: "/(stack)/createPost",
-                params: { categoryId: id },
+                params: { slug },
               })
             }
           >
@@ -120,9 +145,9 @@ const ForumCategory = () => {
 
               <ThemedText style={styles.title}>{thread.title}</ThemedText>
 
-              {thread.content && (
+              {thread.body && (
                 <ThemedText numberOfLines={2} style={styles.content}>
-                  {thread.content}
+                  {thread.body}
                 </ThemedText>
               )}
 

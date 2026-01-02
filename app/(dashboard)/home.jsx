@@ -28,6 +28,36 @@ const Home = () => {
     // do not call player.play() here — we want a static preview
   });
 
+  const giveTemporaryMembership = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        alert("No user logged in");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("memberships")
+        .upsert({
+          user_id: user.id,
+          status: "active",
+          plan: "premium",
+          expires_at: null, // or new Date(Date.now() + 7*24*60*60*1000)
+        });
+
+      if (error) throw error;
+
+      alert("🎉 Membership granted! Re-open Forum to see member view.");
+    } catch (err) {
+      console.error("Grant membership error:", err);
+      alert("Failed to grant membership");
+    }
+  };
+
+
   // Fetch username
   useEffect(() => {
     const fetchProfile = async () => {
@@ -144,6 +174,18 @@ const Home = () => {
         </View>
       </Animated.View>
 
+      {/* 🧪 TEMP: Dev Membership Button */}
+      <TouchableOpacity
+        style={styles.devButton}
+        onPress={giveTemporaryMembership}
+      >
+        <Ionicons name="key-outline" size={18} color="#fff" />
+        <ThemedText style={styles.devButtonText}>
+          Give Membership (DEV)
+        </ThemedText>
+      </TouchableOpacity>
+
+
       <Spacer height={80} />
     </ScrollView>
   );
@@ -215,4 +257,24 @@ const styles = StyleSheet.create({
     color: "#1C1E21",
     marginLeft: 12,
   },
+  devButton: {
+    marginTop: 30,
+    backgroundColor: "#34c759",
+    paddingVertical: 14,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  devButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+
 });
