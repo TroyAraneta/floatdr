@@ -1,46 +1,68 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
 import { supabase } from "../../lib/supabase";
 import useAdminStatus from "../../hooks/useAdminStatus";
 
 export default function AdminDashboard() {
-  const { isAdmin, loading: adminLoading } = useAdminStatus();
+  const { isAdmin, role, loading: adminLoading } = useAdminStatus();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch reports
-  useEffect(() => {
-    if (isAdmin) fetchReports();
-  }, [isAdmin]);
-
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
+    if (!isAdmin) return;
     setLoading(true);
+
     const { data, error } = await supabase
       .from("reports")
-      .select("id, reason, status, user_id, post_id, created_at");
+      .select("id, reason, status, user_id, post_id, created_at")
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching reports:", error);
       Alert.alert("Error", "Failed to load reports.");
     } else {
-      setReports(data);
+      setReports(data || []);
     }
-    setLoading(false);
-  };
 
-  // Mark report as resolved
-  const handleResolve = async (id) => {
-    const { error } = await supabase.from("reports").update({ status: "Resolved" }).eq("id", id);
+    setLoading(false);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
+    fetchReports();
+  }, [isAdmin, fetchReports]);
+
+  const handleResolve = useCallback(async (id) => {
+    const { error } = await supabase
+      .from("reports")
+      .update({ status: "Resolved" })
+      .eq("id", id);
+
     if (error) {
       Alert.alert("Error", "Failed to update report status.");
-    } else {
-      setReports((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Resolved" } : r)));
-      Alert.alert("✅ Success", "Report marked as resolved.");
+      return;
     }
-  };
 
-  // Delete report and post
-  const handleDelete = (reportId, postId) => {
+    setReports((prev) =>
+      prev.map((report) =>
+        report.id === id ? { ...report, status: "Resolved" } : report
+      )
+    );
+    Alert.alert("Success", "Report marked as resolved.");
+  }, []);
+
+  const handleDelete = useCallback((reportId, postId) => {
     Alert.alert(
       "Confirm Delete",
       "Do you want to delete this report and the associated post?",
@@ -50,27 +72,66 @@ export default function AdminDashboard() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            // Delete the post (if exists)
             if (postId) {
-              const { error: postError } = await supabase.from("posts").delete().eq("id", postId);
-              if (postError) console.error("Error deleting post:", postError);
+              const { error: postError } = await supabase
+                .from("posts")
+                .delete()
+                .eq("id", postId);
+              if (postError) {
+                console.error("Error deleting post:", postError);
+              }
             }
 
-            // Delete the report itself
-            const { error: reportError } = await supabase.from("reports").delete().eq("id", reportId);
+            const { error: reportError } = await supabase
+              .from("reports")
+              .delete()
+              .eq("id", reportId);
+
             if (reportError) {
               Alert.alert("Error", "Failed to delete report.");
-            } else {
-              setReports((prev) => prev.filter((r) => r.id !== reportId));
-              Alert.alert("🗑️ Deleted", "Report and post deleted successfully.");
+              return;
             }
+
+            setReports((prev) => prev.filter((report) => report.id !== reportId));
+            Alert.alert("Deleted", "Report and post deleted successfully.");
           },
         },
       ]
     );
-  };
+  }, []);
 
-  // Loading states
+  const renderItem = useCallback(
+    ({ item }) => (
+      <View style={styles.reportCard}>
+        <Text style={styles.id}>Report ID: {item.id}</Text>
+        <Text>Reason: {item.reason}</Text>
+        <Text>Status: {item.status}</Text>
+        <Text>User ID: {item.user_id}</Text>
+        {item.post_id && <Text>Post ID: {item.post_id}</Text>}
+        <Text>Created: {new Date(item.created_at).toLocaleString()}</Text>
+
+        <View style={styles.actions}>
+          {item.status !== "Resolved" && (
+            <TouchableOpacity
+              style={[styles.button, styles.resolveButton]}
+              onPress={() => handleResolve(item.id)}
+            >
+              <Text style={styles.buttonText}>Resolve</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[styles.button, styles.deleteButton]}
+            onPress={() => handleDelete(item.id, item.post_id)}
+          >
+            <Text style={styles.buttonText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    ),
+    [handleDelete, handleResolve]
+  );
+
   if (adminLoading || loading) {
     return (
       <View style={styles.center}>
@@ -79,51 +140,39 @@ export default function AdminDashboard() {
     );
   }
 
-  // Not admin case
   if (!isAdmin) {
     return (
       <View style={styles.center}>
-        <Text style={{ color: "red", fontWeight: "bold", fontSize: 16 }}>Access Denied 🚫</Text>
-        <Text style={{ color: "#555", marginTop: 5 }}>You must be an admin to view this page.</Text>
+        <Text style={{ color: "red", fontWeight: "bold", fontSize: 16 }}>
+          Access Denied
+        </Text>
+        <Text style={{ color: "#555", marginTop: 5 }}>
+          You must be an admin to view this page.
+        </Text>
       </View>
     );
   }
 
-  // Render each report
-  const renderItem = ({ item }) => (
-    <View style={styles.reportCard}>
-      <Text style={styles.id}>Report ID: {item.id}</Text>
-      <Text>Reason: {item.reason}</Text>
-      <Text>Status: {item.status}</Text>
-      <Text>User ID: {item.user_id}</Text>
-      {item.post_id && <Text>Post ID: {item.post_id}</Text>}
-      <Text>Created: {new Date(item.created_at).toLocaleString()}</Text>
-
-      <View style={styles.actions}>
-        {item.status !== "Resolved" && (
-          <TouchableOpacity style={[styles.button, styles.resolveButton]} onPress={() => handleResolve(item.id)}>
-            <Text style={styles.buttonText}>Resolve</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[styles.button, styles.deleteButton]}
-          onPress={() => handleDelete(item.id, item.post_id)}
-        >
-          <Text style={styles.buttonText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>👑 Admin Report Dashboard</Text>
-      <Text style={styles.subheading}>Monitor and manage all user reports below</Text>
+      <Text style={styles.heading}>Admin Report Dashboard</Text>
+      <Text style={styles.subheading}>
+        Monitor and manage all user reports below
+      </Text>
+      <Text style={styles.roleText}>Role: {role}</Text>
 
       {reports.length === 0 ? (
         <Text style={styles.emptyText}>No reports found.</Text>
       ) : (
-        <FlatList data={reports} keyExtractor={(item) => item.id.toString()} renderItem={renderItem} />
+        <FlatList
+          data={reports}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
+        />
       )}
     </View>
   );
@@ -146,6 +195,12 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     marginBottom: 20,
+  },
+  roleText: {
+    fontSize: 12,
+    color: "#777",
+    textAlign: "center",
+    marginBottom: 12,
   },
   reportCard: {
     backgroundColor: "#f2f2f2",

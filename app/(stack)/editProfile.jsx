@@ -3,30 +3,44 @@ import {
   StyleSheet,
   View,
   Image,
-  TextInput,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
   ScrollView,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { Buffer } from "buffer";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
+
+import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
+import ThemedCard from "../../components/ThemedCard";
+import ThemedTextInput from "../../components/ThemedTextInput";
+import Spacer from "../../components/Spacer";
+import { useTheme } from "../../contexts/ThemeContext";
+
+const FALLBACK_AVATAR =
+  "https://cdn-icons-png.flaticon.com/512/149/149071.png";
 
 const EditProfile = () => {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const { theme } = useTheme();
+
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  // ✅ Load user profile
   useEffect(() => {
     const loadProfile = async () => {
       const {
@@ -36,7 +50,7 @@ const EditProfile = () => {
 
       if (userError || !user) {
         Alert.alert("Error", "You must be logged in to edit your profile.");
-        router.replace("/(dashboard)/profile");
+        router.replace("/(dashboard)/menu");
         return;
       }
 
@@ -56,29 +70,97 @@ const EditProfile = () => {
     };
 
     loadProfile();
-  }, []);
+  }, [router]);
 
-  // ✅ Pick image
-  const handleChooseImage = async (shouldCrop = false) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission Denied", "We need access to your photos.");
-      return;
-    }
+  useEffect(() => {
+    const croppedAvatarUri = Array.isArray(params.croppedAvatarUri)
+      ? params.croppedAvatarUri[0]
+      : params.croppedAvatarUri;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: shouldCrop,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+    if (!croppedAvatarUri) return;
 
-    if (!result.canceled) {
-      await uploadAvatar(result.assets[0].uri);
+    uploadAvatar(croppedAvatarUri);
+  }, [params.croppedAvatarUri]);
+
+  const ensureMediaPermission = async () => {
+    try {
+      const before = await ImagePicker.getMediaLibraryPermissionsAsync();
+
+      if (before.granted) {
+        return true;
+      }
+
+      const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (requested.granted) {
+        return true;
+      }
+
+      Alert.alert(
+        "Permission Debug",
+        JSON.stringify(
+          {
+            stage: "media-library-permission",
+            before: {
+              granted: before.granted,
+              status: before.status,
+              canAskAgain: before.canAskAgain,
+              expires: before.expires,
+              accessPrivileges: before.accessPrivileges,
+            },
+            requested: {
+              granted: requested.granted,
+              status: requested.status,
+              canAskAgain: requested.canAskAgain,
+              expires: requested.expires,
+              accessPrivileges: requested.accessPrivileges,
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      return false;
+    } catch (error) {
+      Alert.alert(
+        "Permission Debug Error",
+        JSON.stringify(
+          {
+            stage: "permission-check-catch",
+            message: error?.message || "Unknown permission error",
+            name: error?.name || null,
+          },
+          null,
+          2
+        )
+      );
+      return false;
     }
   };
 
-  // ✅ Upload avatar to Supabase storage bucket and update profile
+  const handleChooseImage = async () => {
+    const hasPermission = await ensureMediaPermission();
+    if (!hasPermission) return;
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.9,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      router.push({
+        pathname: "/(stack)/avatarCrop",
+        params: {
+          imageUri: result.assets[0].uri,
+          returnTo: "/(stack)/editProfile",
+          origin: "editProfile",
+        },
+      });
+    }
+  };
+
   const uploadAvatar = async (uri) => {
     try {
       setUploading(true);
@@ -88,57 +170,82 @@ const EditProfile = () => {
         error: userError,
       } = await supabase.auth.getUser();
 
+      console.log("EDIT PROFILE USER:", JSON.stringify({ userId: user?.id, userError }, null, 2));
+
       if (userError || !user) throw new Error("Not logged in.");
 
-      // Convert image to binary
-      const fileExt = uri.split(".").pop()?.toLowerCase() || "jpg";
-      const fileName = `${user.id}/avatar.${fileExt}`;
-      const mimeType = `image/${fileExt === "jpg" ? "jpeg" : fileExt}`;
+      const cleanUri = uri.split("?")[0];
+      const rawExt = cleanUri.split(".").pop()?.toLowerCase() || "jpg";
+      const normalizedExt = rawExt === "jpg" ? "jpeg" : rawExt;
+      const storedExt = rawExt === "jpeg" ? "jpg" : rawExt;
+      const fileName = `${user.id}/avatar.${storedExt}`;
+      const mimeType = `image/${normalizedExt}`;
+
+      console.log("EDIT PROFILE FILE INFO:", JSON.stringify({
+        cleanUri,
+        rawExt,
+        normalizedExt,
+        storedExt,
+        fileName,
+        mimeType,
+      }, null, 2));
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
+      console.log("EDIT PROFILE BASE64 LENGTH:", base64?.length || 0);
+
       const binary = Buffer.from(base64, "base64");
 
-      // ✅ Upload or replace existing avatar
-      const { error: uploadError } = await supabase.storage
-        .from("avatars") // change this if your bucket name differs
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("avatars")
         .upload(fileName, binary, {
           contentType: mimeType,
           upsert: true,
         });
 
+      console.log("EDIT PROFILE STORAGE RESULT:", JSON.stringify({
+        uploadData,
+        uploadError,
+      }, null, 2));
+
       if (uploadError) throw uploadError;
 
-      // ✅ Get public URL
       const { data } = supabase.storage.from("avatars").getPublicUrl(fileName);
       const publicUrl = data?.publicUrl;
 
+      console.log("EDIT PROFILE PUBLIC URL:", publicUrl);
+
       if (!publicUrl) throw new Error("Failed to get public URL.");
 
-      // ✅ Save to profile table
-      const { error: updateError } = await supabase
+      const { data: profileUpdateData, error: updateError } = await supabase
         .from("profiles")
         .update({ avatar_url: publicUrl })
-        .eq("id", user.id);
+        .eq("id", user.id)
+        .select();
+
+      console.log("EDIT PROFILE DB UPDATE RESULT:", JSON.stringify({
+        profileUpdateData,
+        updateError,
+      }, null, 2));
 
       if (updateError) throw updateError;
 
-      // ✅ Refresh avatar in UI (force reload)
       setAvatarUrl(`${publicUrl}?t=${Date.now()}`);
+      router.setParams({ croppedAvatarUri: undefined, t: undefined });
       Alert.alert("Success", "Profile picture updated!");
     } catch (error) {
-      Alert.alert("Upload Failed", error.message);
-      console.error("Avatar upload error:", error);
+      console.error("EDIT PROFILE FINAL ERROR:", JSON.stringify(error, null, 2));
+      Alert.alert("Upload Failed", error?.message || "Unable to upload avatar.");
     } finally {
       setUploading(false);
     }
   };
 
-  // ✅ Save profile changes
   const handleSave = async () => {
     setLoading(true);
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -149,204 +256,415 @@ const EditProfile = () => {
       return;
     }
 
-    const updates = {
-      id: user.id,
-      username,
-      bio,
-      avatar_url: avatarUrl,
-      updated_at: new Date(),
-    };
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        username: username.trim(),
+        bio: bio.trim(),
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
 
-    const { error } = await supabase.from("profiles").upsert(updates);
     setLoading(false);
 
-    if (error) Alert.alert("Update Failed", error.message);
-    else {
+    if (error) {
+      Alert.alert("Update Failed", error.message);
+    } else {
       Alert.alert("Success", "Profile updated successfully!");
-      router.replace("/(dashboard)/profile");
+      router.replace("/(dashboard)/menu");
     }
   };
 
-  // ✅ Loading state
-  if (loading)
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0a84ff" />
-      </View>
+      <ThemedView
+        style={[styles.loadingContainer, { backgroundColor: theme.background }]}
+      >
+        <ActivityIndicator size="large" color={theme.primary} />
+      </ThemedView>
     );
+  }
 
-  // ✅ UI
+  const usernameTrimmed = username.trim();
+  const bioTrimmed = bio.trim();
+
   return (
-    <ScrollView
-      style={{ backgroundColor: "#e6f4f9" }}
-      contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {/* 🔙 Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.replace("/(dashboard)/profile")}>
-          <Ionicons name="arrow-back" size={24} color="#0a84ff" />
-        </TouchableOpacity>
-        <ThemedText title style={styles.headerText}>
-          Edit Profile
-        </ThemedText>
-        <View style={{ width: 24 }} />
-      </View>
-
-      {/* 🖼️ Avatar */}
-      <View style={styles.avatarContainer}>
-        <Image
-          source={{
-            uri:
-              avatarUrl ||
-              "https://cdn-icons-png.flaticon.com/512/149/149071.png",
-          }}
-          style={styles.avatar}
-        />
-
-        {uploading ? (
-          <View style={styles.uploadingRow}>
-            <ActivityIndicator size="small" color="#0a84ff" />
-            <ThemedText style={{ marginLeft: 8 }}>Uploading...</ThemedText>
-          </View>
-        ) : (
-          <View style={styles.imageButtonsRow}>
-            <TouchableOpacity
-              style={styles.imageButton}
-              onPress={() => handleChooseImage(false)}
+      <ThemedView style={{ flex: 1, backgroundColor: theme.background }}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Pressable
+              onPress={() => router.replace("/(dashboard)/menu")}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={[styles.headerBtn, { backgroundColor: theme.surface }]}
             >
-              <Ionicons name="image-outline" size={18} color="#0a84ff" />
-              <ThemedText style={styles.imageButtonText}>Change</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.imageButton}
-              onPress={() => handleChooseImage(true)}
+              <Ionicons name="arrow-back" size={18} color={theme.iconMuted} />
+            </Pressable>
+
+            <ThemedText
+              title
+              style={[styles.headerTitle, { color: theme.title }]}
             >
-              <Ionicons name="crop-outline" size={18} color="#0a84ff" />
-              <ThemedText style={styles.imageButtonText}>Edit Image</ThemedText>
-            </TouchableOpacity>
+              Edit Profile
+            </ThemedText>
+
+            <View style={{ width: 40 }} />
           </View>
-        )}
-      </View>
 
-      {/* Username */}
-      <ThemedText style={styles.label}>Username</ThemedText>
-      <TextInput
-        value={username}
-        onChangeText={setUsername}
-        placeholder="Enter your username"
-        style={styles.input}
-      />
+          <Spacer height={10} />
 
-      {/* Bio */}
-      <ThemedText style={styles.label}>Bio</ThemedText>
-      <TextInput
-        value={bio}
-        onChangeText={setBio}
-        placeholder="Tell something about yourself"
-        multiline
-        numberOfLines={3}
-        style={[styles.input, { height: 100, textAlignVertical: "top" }]}
-      />
+          <ThemedCard
+            style={[
+              styles.avatarCard,
+              { backgroundColor: theme.surface, shadowColor: theme.shadow },
+            ]}
+          >
+            <View style={styles.avatarRow}>
+              <View style={styles.avatarWrap}>
+                <Image
+                  source={{ uri: avatarUrl || FALLBACK_AVATAR }}
+                  style={[
+                    styles.avatar,
+                    { backgroundColor: theme.uiBackground },
+                  ]}
+                  accessibilityLabel="Profile picture"
+                />
 
-      {/* Save Button */}
-      <ThemedButton onPress={handleSave} style={styles.saveButton}>
-        <ThemedText style={styles.saveText}>Save Changes</ThemedText>
-      </ThemedButton>
-    </ScrollView>
+                <View
+                  style={[
+                    styles.cameraChip,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.uiBackground,
+                    },
+                  ]}
+                >
+                  <Ionicons name="camera" size={14} color={theme.iconMuted} />
+                </View>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <ThemedText
+                  style={[styles.avatarTitle, { color: theme.title }]}
+                >
+                  Profile photo
+                </ThemedText>
+                <ThemedText
+                  muted
+                  style={{ color: theme.textMuted, marginTop: 4 }}
+                >
+                  Use a clear photo so people recognize you.
+                </ThemedText>
+
+                <View style={styles.avatarActions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.avatarActionBtn,
+                      styles.avatarActionBtnSingle,
+                      { backgroundColor: theme.uiBackground },
+                    ]}
+                    onPress={handleChooseImage}
+                    activeOpacity={0.85}
+                    disabled={uploading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose and crop profile photo"
+                  >
+                    <Ionicons
+                      name="crop-outline"
+                      size={18}
+                      color={theme.icon}
+                    />
+                    <ThemedText
+                      style={[styles.avatarActionText, { color: theme.text }]}
+                    >
+                      Choose & Crop
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+
+                {uploading && (
+                  <View style={styles.uploadingRow}>
+                    <ActivityIndicator size="small" color={theme.primary} />
+                    <ThemedText
+                      muted
+                      style={{ marginLeft: 8, color: theme.textMuted }}
+                    >
+                      Uploading photo…
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+            </View>
+          </ThemedCard>
+
+          <Spacer height={14} />
+
+          <ThemedCard
+            style={[
+              styles.formCard,
+              { backgroundColor: theme.surface, shadowColor: theme.shadow },
+            ]}
+          >
+            <ThemedText
+              muted
+              style={[styles.sectionLabel, { color: theme.textMuted }]}
+            >
+              ABOUT YOU
+            </ThemedText>
+
+            <Spacer height={10} />
+
+            <ThemedText style={[styles.label, { color: theme.title }]}>
+              Username
+            </ThemedText>
+
+            <ThemedTextInput
+              value={username}
+              onChangeText={setUsername}
+              placeholder="Enter your username"
+              style={[styles.input, { borderColor: theme.uiBackground }]}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Username"
+              returnKeyType="next"
+            />
+
+            <View style={styles.counterRow}>
+              <ThemedText
+                muted
+                style={{ color: theme.textMuted, fontSize: 12 }}
+              />
+              <ThemedText
+                muted
+                style={{ color: theme.textMuted, fontSize: 12 }}
+              >
+                {usernameTrimmed.length}/30
+              </ThemedText>
+            </View>
+
+            <Spacer height={14} />
+
+            <ThemedText style={[styles.label, { color: theme.title }]}>
+              Bio
+            </ThemedText>
+
+            <ThemedTextInput
+              value={bio}
+              onChangeText={setBio}
+              placeholder="Tell something about yourself"
+              multiline
+              style={[
+                styles.input,
+                styles.bioInput,
+                { borderColor: theme.uiBackground },
+              ]}
+              accessibilityLabel="Bio"
+              textAlignVertical="top"
+            />
+
+            <View style={styles.counterRow}>
+              <ThemedText
+                muted
+                style={{ color: theme.textMuted, fontSize: 12 }}
+              />
+              <ThemedText
+                muted
+                style={{ color: theme.textMuted, fontSize: 12 }}
+              >
+                {bioTrimmed.length}/160
+              </ThemedText>
+            </View>
+
+            <Spacer height={18} />
+
+            <ThemedButton
+              onPress={handleSave}
+              disabled={uploading}
+              style={styles.saveButton}
+              accessibilityRole="button"
+              accessibilityLabel="Save profile changes"
+            >
+              <ThemedText style={styles.saveText}>
+                {uploading ? "Please wait…" : "Save Changes"}
+              </ThemedText>
+            </ThemedButton>
+          </ThemedCard>
+
+          <Spacer height={70} />
+        </ScrollView>
+      </ThemedView>
+    </KeyboardAvoidingView>
   );
 };
 
 export default EditProfile;
 
-// ✅ Styles
 const styles = StyleSheet.create({
   container: {
     padding: 20,
     paddingBottom: 60,
   },
+
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#e6f4f9",
   },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 25,
+    marginTop: 6,
   },
-  headerText: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#0a84ff",
-  },
-  avatarContainer: {
-    alignItems: "center",
-    marginBottom: 25,
-  },
-  avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#ddd",
-    marginBottom: 12,
-  },
-  imageButtonsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 12,
-  },
-  imageButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  imageButtonText: {
-    color: "#0a84ff",
-    marginLeft: 6,
-    fontWeight: "600",
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333",
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-    marginBottom: 15,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  saveButton: {
-    marginTop: 10,
-    backgroundColor: "#0a84ff",
+
+  headerBtn: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  saveText: {
-    color: "#fff",
-    textAlign: "center",
-    fontSize: 16,
-    fontWeight: "700",
+
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: -0.3,
   },
+
+  avatarCard: {
+    borderRadius: 18,
+    padding: 14,
+  },
+
+  avatarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+
+  avatarWrap: {
+    width: 92,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatar: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+  },
+
+  cameraChip: {
+    position: "absolute",
+    right: 6,
+    bottom: 2,
+    width: 24,
+    height: 24,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+
+  avatarTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
+  avatarActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+
+  avatarActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    minHeight: 44,
+    flex: 1,
+  },
+
+  avatarActionBtnSingle: {
+    flex: 0,
+    alignSelf: "flex-start",
+    minWidth: 150,
+  },
+
+  avatarActionText: {
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
   uploadingRow: {
     flexDirection: "row",
     alignItems: "center",
+    marginTop: 10,
+  },
+
+  formCard: {
+    borderRadius: 18,
+    padding: 14,
+  },
+
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+  },
+
+  label: {
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  helper: {
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 10,
+    lineHeight: 16,
+  },
+
+  input: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
+
+  bioInput: {
+    minHeight: 110,
+  },
+
+  counterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: 8,
+  },
+
+  saveButton: {
+    borderRadius: 14,
+  },
+
+  saveText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 15,
   },
 });

@@ -11,12 +11,13 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import ThemedText from "../../components/ThemedText";
-import ThemedButton from "../../components/ThemedButton";
 import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../../contexts/ThemeContext";
 
 const ForumCategory = () => {
   const { slug } = useLocalSearchParams();
   const router = useRouter();
+  const { theme } = useTheme();
 
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -85,7 +86,7 @@ const ForumCategory = () => {
   }, [category]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -116,7 +117,7 @@ const ForumCategory = () => {
           threads.map((thread) => (
             <TouchableOpacity
               key={thread.id}
-              style={styles.threadCard}
+              style={[styles.threadCard, { backgroundColor: theme.surface }]}
               onPress={() =>
                 router.push({
                   pathname: "/(dashboard)/forum/thread/[id]",
@@ -170,7 +171,6 @@ export default ForumCategory;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
   },
   scrollContent: {
     padding: 16,
@@ -188,7 +188,6 @@ const styles = StyleSheet.create({
     color: "#222",
   },
   threadCard: {
-    backgroundColor: "#f9f9f9",
     borderRadius: 12,
     padding: 12,
     marginBottom: 14,

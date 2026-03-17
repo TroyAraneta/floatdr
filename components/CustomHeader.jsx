@@ -1,53 +1,56 @@
 import React from "react";
-import { View, Image, Text, StyleSheet, StatusBar } from "react-native";
+import { View, StyleSheet, StatusBar, Image } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useTheme } from "../contexts/ThemeContext";
+import { Colors } from "../constants/colors";
 
 export default function CustomHeader() {
+  const { theme, isDark } = useTheme();
+
+  const headerBackground = isDark ? theme.navBackground : Colors.primary;
+
   return (
-    <View style={styles.header}>
-      <StatusBar barStyle="light-content" backgroundColor="#1877f2" />
-      <View style={styles.content}>
+    <SafeAreaView
+      edges={["top"]}
+      style={[styles.safeArea, { backgroundColor: headerBackground }]}
+    >
+      <StatusBar barStyle="light-content" backgroundColor={headerBackground} />
+
+      <View style={[styles.header, { backgroundColor: headerBackground }]}>
         <Image
-          source={require("../assets/img/trans-logo_white.png")}
+          source={require("../assets/img/FDLogoWhite.png")}
           style={styles.logo}
           resizeMode="contain"
+          accessible
+          accessibilityRole="image"
+          accessibilityLabel="FloatDr Forum logo"
         />
-        <Text style={styles.title}>                Forum</Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    width: "100%",
+  },
+
   header: {
-    backgroundColor: "#1877f2",
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 30,
+    paddingBottom: 15,
     alignItems: "center",
     justifyContent: "center",
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
+
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.18,
     shadowRadius: 4,
-    elevation: 5,
+    elevation: 4,
   },
-  content: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+
+  // sized to match previous BrandLockup "sm" visual footprint
   logo: {
-    width: 180,
-    height: 120,
-    marginBottom: -5, // slight overlap to remove visual gap
-  },
-  title: {
-    color: "#fff",
-    fontSize: 22,
-    fontWeight: "700",
-    fontFamily: "sans-serif-medium",
-    letterSpacing: 1,
-    marginTop: -40, // ensure no extra space above text
-    marginBottom: 15
+    width: 280,
+    height: 80,
   },
 });

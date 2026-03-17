@@ -1,72 +1,86 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext();
 
-export const AuthProvider = ({ children }) => {
+export const SupabaseAuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [session, setSession] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // 🔐 Login
+  const getVerifiedFlag = (u) => {
+    // Supabase may expose one of these depending on version/provider
+    return !!(u?.email_confirmed_at || u?.confirmed_at);
+  };
+
+  const isEmailVerified = useMemo(() => getVerifiedFlag(user), [user]);
+
+  const refreshUser = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    const nextUser = data?.session?.user ?? null;
+    setUser(nextUser);
+    return nextUser;
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    // Initial session check
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setUser(data.session?.user ?? null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setUser(null);
+        setLoading(false);
+      });
+
+    // Listen for auth changes
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      // Note: don't flip loading here; loading is only for initial boot
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
   async function login(email, password) {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    if (error) throw Error(error.message);
+    if (error) throw error;
 
-    setSession(data.session);
-    setUser(data.user);
+    // Optional: ensure user state is fresh immediately after login
+    // (auth state change listener will usually handle this)
+    await refreshUser();
   }
 
-  // 🆕 Register
   async function register(email, password) {
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
     });
-    if (error) throw Error(error.message);
-
-    setSession(data.session);
-    setUser(data.user);
+    if (error) throw error;
   }
 
-  // 🚪 Logout
   async function logout() {
     await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
   }
-
-  // 🔄 Check initial session on app start
-  useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      setAuthChecked(true);
-    };
-
-    init();
-
-    // 🔥 Listen for auth changes (login, logout, refresh, etc.)
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => sub.subscription.unsubscribe();
-  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        session,
-        authChecked,
+        loading,
+        isEmailVerified,
+        refreshUser,
         login,
         register,
         logout,
@@ -77,5 +91,4 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Easy hook
 export const useAuth = () => useContext(AuthContext);

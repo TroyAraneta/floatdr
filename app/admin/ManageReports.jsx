@@ -1,54 +1,90 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   View,
-  ScrollView,
   ActivityIndicator,
   TouchableOpacity,
   Alert,
   StyleSheet,
+  FlatList,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import ThemedText from "../../components/ThemedText";
-import ThemedButton from "../../components/ThemedButton";
+import useAdminStatus from "../../hooks/useAdminStatus";
 
 const ManageReports = () => {
+  const { isAdmin, loading: adminLoading } = useAdminStatus();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // ✅ Fetch all reports (with thread + reporter info)
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async (isRefresh = false) => {
     try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
       const { data, error } = await supabase
-        .from("forum_reports")
+        .from("moderation_reports")
         .select(`
           id,
           reason,
-          details,
+          notes,
           created_at,
           thread_id,
           reporter_id,
-          forum_threads ( title ),
-          profiles ( username )
+          forum_threads ( title )
         `)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setReports(data || []);
+
+      const safeReports = data || [];
+      const reporterIds = [...new Set(safeReports.map((item) => item.reporter_id).filter(Boolean))];
+
+      let usernameMap = {};
+      if (reporterIds.length > 0) {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("id, username")
+          .in("id", reporterIds);
+
+        if (profileError) throw profileError;
+
+        usernameMap = (profileData || []).reduce((acc, profile) => {
+          acc[profile.id] = profile.username;
+          return acc;
+        }, {});
+      }
+
+      setReports(
+        safeReports.map((item) => ({
+          ...item,
+          reporter_username: usernameMap[item.reporter_id] || "Anonymous",
+        }))
+      );
     } catch (err) {
       Alert.alert("Error", err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    fetchReports();
   }, []);
 
-  // ✅ Delete a report (after reviewing it)
-  const handleDeleteReport = async (id) => {
+  useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
+    fetchReports(false);
+  }, [fetchReports, isAdmin]);
+
+  const handleRefresh = useCallback(() => {
+    fetchReports(true);
+  }, [fetchReports]);
+
+  const handleDeleteReport = useCallback((id) => {
     Alert.alert("Confirm", "Delete this report?", [
       { text: "Cancel", style: "cancel" },
       {
@@ -57,72 +93,90 @@ const ManageReports = () => {
         onPress: async () => {
           try {
             const { error } = await supabase
-              .from("forum_reports")
+              .from("moderation_reports")
               .delete()
               .eq("id", id);
             if (error) throw error;
-            setReports((prev) => prev.filter((r) => r.id !== id));
+            setReports((prev) => prev.filter((report) => report.id !== id));
           } catch (err) {
             Alert.alert("Error", err.message);
           }
         },
       },
     ]);
-  };
+  }, []);
 
-  if (loading)
+  const renderItem = useCallback(
+    ({ item }) => (
+      <View style={styles.card}>
+        <ThemedText style={styles.reason}>Reason: {item.reason}</ThemedText>
+        {item.notes ? (
+          <ThemedText style={styles.details}>Notes: {item.notes}</ThemedText>
+        ) : null}
+        <ThemedText style={styles.meta}>
+          Reported by: {item.reporter_username || "Anonymous"}
+        </ThemedText>
+        <ThemedText style={styles.meta}>
+          Thread: {item.forum_threads?.title || "(deleted)"}
+        </ThemedText>
+        <ThemedText style={styles.date}>
+          {new Date(item.created_at).toLocaleString()}
+        </ThemedText>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            onPress={() => handleDeleteReport(item.id)}
+            style={styles.deleteBtn}
+          >
+            <ThemedText style={{ color: "#fff" }}>Delete</ThemedText>
+          </TouchableOpacity>
+        </View>
+      </View>
+    ),
+    [handleDeleteReport]
+  );
+
+  if (adminLoading || loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#4CAF50" />
       </View>
     );
+  }
+  if (!isAdmin) {
+    return (
+      <View style={styles.center}>
+        <ThemedText style={styles.deniedTitle}>Access Denied</ThemedText>
+        <ThemedText style={styles.deniedBody}>
+          You must be an admin to view this page.
+        </ThemedText>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ padding: 16 }}
-      refreshing={refreshing}
-      onRefresh={fetchReports}
-    >
-      <ThemedText title style={styles.title}>
-        ⚠️ Manage Reports
-      </ThemedText>
-
-      {reports.length === 0 ? (
-        <ThemedText style={styles.emptyText}>No reports found.</ThemedText>
-      ) : (
-        reports.map((r) => (
-          <View key={r.id} style={styles.card}>
-            <ThemedText style={styles.reason}>
-              Reason: {r.reason}
-            </ThemedText>
-            {r.details ? (
-              <ThemedText style={styles.details}>
-                Details: {r.details}
-              </ThemedText>
-            ) : null}
-            <ThemedText style={styles.meta}>
-              Reported by: {r.profiles?.username || "Anonymous"}
-            </ThemedText>
-            <ThemedText style={styles.meta}>
-              Thread: {r.forum_threads?.title || "(deleted)"}
-            </ThemedText>
-            <ThemedText style={styles.date}>
-              {new Date(r.created_at).toLocaleString()}
-            </ThemedText>
-
-            <View style={styles.actions}>
-              <TouchableOpacity
-                onPress={() => handleDeleteReport(r.id)}
-                style={styles.deleteBtn}
-              >
-                <ThemedText style={{ color: "#fff" }}>Delete</ThemedText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))
-      )}
-    </ScrollView>
+    <View style={styles.container}>
+      <FlatList
+        data={reports}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderItem}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <ThemedText title style={styles.title}>
+            Manage Reports
+          </ThemedText>
+        }
+        ListEmptyComponent={
+          <ThemedText style={styles.emptyText}>No reports found.</ThemedText>
+        }
+      />
+    </View>
   );
 };
 
@@ -130,6 +184,7 @@ export default ManageReports;
 
 const styles = StyleSheet.create({
   container: { backgroundColor: "#fff", flex: 1 },
+  listContent: { padding: 16 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   title: { fontSize: 22, marginBottom: 16, textAlign: "center" },
   emptyText: { textAlign: "center", color: "#777" },
@@ -154,4 +209,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 14,
   },
+  deniedTitle: { color: "red", fontWeight: "bold", fontSize: 16 },
+  deniedBody: { color: "#555", marginTop: 5 },
 });

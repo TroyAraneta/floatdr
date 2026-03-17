@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase"; // adjust path if needed
 import { View, Text, TouchableOpacity, Alert, ScrollView } from "react-native";
+import useAdminStatus from "../../hooks/useAdminStatus";
+import { useTheme } from "../../contexts/ThemeContext";
 
 export default function PostList() {
   const [posts, setPosts] = useState([]);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [userId, setUserId] = useState(null);
+  const { isAdmin } = useAdminStatus();
+  const { theme } = useTheme();
 
   // Fetch posts
   useEffect(() => {
     fetchPosts();
-    checkAdminStatus();
   }, []);
 
   // Get posts from Supabase
@@ -25,26 +26,6 @@ export default function PostList() {
   }
 
   // Check if user is admin
-  async function checkAdminStatus() {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) return;
-
-    setUserId(user.id);
-
-    const { data, error } = await supabase
-      .from("admins")
-      .select("*")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error("Error checking admin:", error);
-    } else {
-      setIsAdmin(!!data);
-    }
-  }
-
   // Delete post (admin only)
   async function deletePost(id) {
     Alert.alert("Confirm Delete", "Are you sure you want to delete this post?", [
@@ -68,31 +49,31 @@ export default function PostList() {
   }
 
   return (
-    <ScrollView style={{ padding: 20 }}>
+    <ScrollView style={{ padding: 20, backgroundColor: theme.background }}>
       {posts.length === 0 ? (
-        <Text>No posts available.</Text>
+        <Text style={{ color: theme.textMuted }}>No posts available.</Text>
       ) : (
         posts.map((post) => (
           <View
             key={post.id}
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: theme.surface,
               padding: 15,
               marginBottom: 10,
               borderRadius: 10,
-              shadowColor: "#000",
+              shadowColor: theme.shadow,
               shadowOpacity: 0.1,
               shadowRadius: 5,
             }}
           >
-            <Text style={{ fontSize: 16, fontWeight: "bold" }}>{post.title}</Text>
-            <Text style={{ marginTop: 5 }}>{post.content}</Text>
+            <Text style={{ fontSize: 16, fontWeight: "bold", color: theme.title }}>{post.title}</Text>
+            <Text style={{ marginTop: 5, color: theme.text }}>{post.content}</Text>
 
             {isAdmin && (
               <TouchableOpacity
                 onPress={() => deletePost(post.id)}
                 style={{
-                  backgroundColor: "#ff4d4d",
+                  backgroundColor: theme.danger,
                   marginTop: 10,
                   padding: 8,
                   borderRadius: 8,

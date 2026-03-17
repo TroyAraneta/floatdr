@@ -1,49 +1,92 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
+const DEFAULT_ROLE = "user";
+
+function normalizeRole(value) {
+  if (value === "admin" || value === "head_admin") return value;
+  return DEFAULT_ROLE;
+}
+
 export default function useAdminStatus() {
-  const [isAdmin, setIsAdmin] = useState(false);
+  const mountedRef = useRef(true);
+  const [role, setRole] = useState(DEFAULT_ROLE);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const fetchStatus = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    const loadAdminStatus = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
 
+      const user = userData?.user;
       if (!user) {
-        if (mounted) {
-          setIsAdmin(false);
-          setLoading(false);
-        }
+        if (mountedRef.current) setRole(DEFAULT_ROLE);
         return;
       }
 
-      const { data, error } = await supabase
+      const { data, error: roleErr } = await supabase
         .from("profiles")
-        .select("is_admin")
+        .select("admin_role")
         .eq("id", user.id)
         .single();
 
-      if (mounted) {
-        if (error) {
-          console.error("Admin check failed:", error);
-          setIsAdmin(false);
-        } else {
-          setIsAdmin(data.is_admin);
+      if (roleErr) {
+        const shouldFallback =
+          roleErr.code === "PGRST204" || /admin_role/i.test(roleErr.message || "");
+
+        if (shouldFallback) {
+          const { data: legacyData, error: legacyErr } = await supabase
+            .from("profiles")
+            .select("is_admin")
+            .eq("id", user.id)
+            .single();
+
+          if (legacyErr) throw legacyErr;
+
+          if (mountedRef.current) {
+            setRole(legacyData?.is_admin ? "admin" : DEFAULT_ROLE);
+          }
+          return;
         }
-        setLoading(false);
+
+        throw roleErr;
       }
-    };
 
-    loadAdminStatus();
-
-    return () => {
-      mounted = false;
-    };
+      if (mountedRef.current) {
+        setRole(normalizeRole(data?.admin_role));
+      }
+    } catch (err) {
+      console.error("Admin status check failed:", err);
+      if (mountedRef.current) {
+        setRole(DEFAULT_ROLE);
+        setError(err?.message || "Failed to load admin status.");
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
   }, []);
 
-  return { isAdmin, loading };
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchStatus();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchStatus]);
+
+  const isAdmin = role === "admin" || role === "head_admin";
+  const isHeadAdmin = role === "head_admin";
+
+  return {
+    role,
+    isAdmin,
+    isHeadAdmin,
+    loading,
+    error,
+    refetch: fetchStatus,
+  };
 }

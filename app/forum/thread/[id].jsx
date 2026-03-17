@@ -9,28 +9,22 @@ import {
   RefreshControl,
   StyleSheet,
   Alert,
-  Modal, // ✅ REPORT FEATURE
-  Pressable, // ✅ REPORT FEATURE
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../../lib/supabase";
 import ThemedText from "../../../components/ThemedText";
-import ThemedButton from "../../../components/ThemedButton";
+import { useTheme } from "../../../contexts/ThemeContext";
 
 const ThreadView = () => {
   const { id } = useLocalSearchParams();
+  const router = useRouter();
+  const { theme } = useTheme();
   const [thread, setThread] = useState(null);
   const [replies, setReplies] = useState([]);
   const [replyText, setReplyText] = useState("");
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  // ✅ REPORT FEATURE
-  const [reportModalVisible, setReportModalVisible] = useState(false);
-  const [reportReason, setReportReason] = useState("");
-  const [reportDetails, setReportDetails] = useState("");
-  const [submittingReport, setSubmittingReport] = useState(false);
 
   const fetchThread = async () => {
     try {
@@ -124,15 +118,6 @@ const ThreadView = () => {
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username, avatar_url")
-        .eq("id", user.id)
-        .single();
-
-      const username = profile?.username || "Anonymous";
-      const avatar = profile?.avatar_url || null;
-
       const { error: insertError } = await supabase
         .from("forum_replies")
         .insert([
@@ -142,7 +127,6 @@ const ThreadView = () => {
             content: replyText,
           },
         ]);
-
 
       if (insertError) throw insertError;
 
@@ -154,45 +138,25 @@ const ThreadView = () => {
     }
   };
 
-  // ✅ REPORT FEATURE — handle report submission
-  const handleReportSubmit = async () => {
-    if (!reportReason.trim()) {
-      Alert.alert("Missing reason", "Please select or write a reason.");
+  const handleReportThread = async () => {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      Alert.alert("Login required", "Please log in to report this post.");
+      router.replace("/(auth)/login");
       return;
     }
 
-    try {
-      setSubmittingReport(true);
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        Alert.alert("Error", "You must be logged in to report.");
-        return;
-      }
-
-      const { error } = await supabase.from("forum_reports").insert([
-        {
-          thread_id: id,
-          reporter_id: user.id,
-          reason: reportReason,
-          details: reportDetails,
-        },
-      ]);
-
-      if (error) throw error;
-
-      Alert.alert("Reported", "Thank you. The report has been submitted.");
-      setReportModalVisible(false);
-      setReportReason("");
-      setReportDetails("");
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    } finally {
-      setSubmittingReport(false);
-    }
+    router.push({
+      pathname: "/(stack)/reportThread",
+      params: {
+        threadId: id,
+        threadTitle: thread?.title || "",
+      },
+    });
   };
 
   if (loading)
@@ -210,7 +174,7 @@ const ThreadView = () => {
     );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
         style={styles.scroll}
         refreshControl={
@@ -218,8 +182,7 @@ const ThreadView = () => {
         }
         contentContainerStyle={{ paddingBottom: 80 }}
       >
-        {/* Original Thread */}
-        <View style={styles.postCard}>
+        <View style={[styles.postCard, { backgroundColor: theme.surface }]}>
           <View style={styles.header}>
             <Image
               source={{
@@ -249,18 +212,16 @@ const ThreadView = () => {
             <Image source={{ uri: thread.image_url }} style={styles.image} />
           )}
 
-          {/* ✅ REPORT BUTTON */}
           <TouchableOpacity
-            onPress={() => setReportModalVisible(true)}
-            style={styles.reportButton}
+            onPress={handleReportThread}
+            style={[styles.reportButton, { backgroundColor: theme.uiBackground }]}
           >
             <ThemedText style={{ color: "#e53935", fontWeight: "600" }}>
-              🚩 Report Post
+              Report Post
             </ThemedText>
           </TouchableOpacity>
         </View>
 
-        {/* Replies */}
         <ThemedText title style={styles.replyHeader}>
           Replies
         </ThemedText>
@@ -271,7 +232,10 @@ const ThreadView = () => {
           </ThemedText>
         ) : (
           replies.map((r) => (
-            <View key={r.id} style={styles.replyCard}>
+            <View
+              key={r.id}
+              style={[styles.replyCard, { backgroundColor: theme.surface }]}
+            >
               <View style={styles.header}>
                 <Image
                   source={{
@@ -296,10 +260,14 @@ const ThreadView = () => {
         )}
       </ScrollView>
 
-      {/* Reply Input */}
-      <View style={styles.replyBox}>
+      <View
+        style={[
+          styles.replyBox,
+          { backgroundColor: theme.surface, borderColor: theme.uiBackground },
+        ]}
+      >
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: theme.uiBackground }]}
           placeholder="Write a reply..."
           value={replyText}
           onChangeText={setReplyText}
@@ -315,45 +283,6 @@ const ThreadView = () => {
           </ThemedText>
         </TouchableOpacity>
       </View>
-
-      {/* ✅ REPORT MODAL */}
-      <Modal
-        transparent
-        animationType="fade"
-        visible={reportModalVisible}
-        onRequestClose={() => setReportModalVisible(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setReportModalVisible(false)}
-        >
-          <View style={styles.modalBox}>
-            <ThemedText title>Report Post</ThemedText>
-
-            <TextInput
-              placeholder="Reason (e.g. spam, harassment...)"
-              value={reportReason}
-              onChangeText={setReportReason}
-              style={styles.modalInput}
-            />
-
-            <TextInput
-              placeholder="Additional details (optional)"
-              value={reportDetails}
-              onChangeText={setReportDetails}
-              style={[styles.modalInput, { height: 80 }]}
-              multiline
-            />
-
-            <ThemedButton
-              title={submittingReport ? "Submitting..." : "Submit Report"}
-              onPress={handleReportSubmit}
-              disabled={submittingReport}
-              color="#e53935"
-            />
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 };
@@ -361,11 +290,10 @@ const ThreadView = () => {
 export default ThreadView;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1 },
   scroll: { padding: 16 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   postCard: {
-    backgroundColor: "#f9f9f9",
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
@@ -387,13 +315,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    backgroundColor: "#ffeaea",
     borderRadius: 8,
   },
   replyHeader: { fontSize: 18, marginBottom: 10 },
   noReplies: { textAlign: "center", color: "#777", marginTop: 20 },
   replyCard: {
-    backgroundColor: "#f3f3f3",
     borderRadius: 8,
     padding: 10,
     marginBottom: 10,
@@ -404,12 +330,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 10,
     borderTopWidth: 1,
-    borderColor: "#ddd",
-    backgroundColor: "#fff",
   },
   input: {
     flex: 1,
-    backgroundColor: "#f2f3f5",
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -421,25 +344,5 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     marginLeft: 8,
-  },
-  // ✅ Modal styling
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalBox: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 20,
-    width: "85%",
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 10,
   },
 });

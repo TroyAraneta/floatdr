@@ -29,7 +29,14 @@
     },
     "plugins": [
       "expo-router",
-      "expo-video"
-    ]
+      "expo-video",
+      "expo-font"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "411ae865-f4bd-4a41-9096-2b23cd903dbe"
+      }
+    }
   }
 }

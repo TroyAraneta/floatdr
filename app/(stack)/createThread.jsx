@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   StyleSheet,
   TextInput,
@@ -10,21 +10,34 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import { Buffer } from "buffer";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/SupabaseAuthContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import useMembershipStatus from "../../hooks/useMembershipStatus";
+import SubscriptionModal from "../../components/SubscriptionModal";
 
 const CreateThread = () => {
   const router = useRouter();
+  const { theme } = useTheme();
   const rawSlug = useLocalSearchParams().slug;
   const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
 
-  const { user, authChecked } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const {
+    isSubscribed: isMember,
+    subscriptionLoading: membershipLoading,
+    error: membershipError,
+    refreshSubscription: refreshMembership,
+  } = useMembershipStatus();
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -32,20 +45,35 @@ const CreateThread = () => {
   const [imageRatio, setImageRatio] = useState(1);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [category, setCategory] = useState(null);
+
+  const submittingRef = useRef(false);
 
   useEffect(() => {
-    if (authChecked && !user) {
-      router.replace("/(tabs)/menu");
+    if (!authLoading && !user) {
+      router.replace("/(auth)/login");
     }
-  }, [authChecked, user]);
+  }, [authLoading, user, router]);
 
-  const [category, setCategory] = useState(null);
+  const isPermissionDenied = (err) => {
+    const msg = (err?.message || "").toLowerCase();
+    return msg.includes("permission denied") || msg.includes("rls");
+  };
 
   useEffect(() => {
     const fetchCategory = async () => {
-      if (!slug) { // guard against bad navigation
+      if (!slug) {
         Alert.alert("Error", "Missing category.");
         router.back();
+        return;
+      }
+
+      if (authLoading || membershipLoading) return;
+      if (!user) return;
+
+      if (!isMember) {
+        setCategory(null);
         return;
       }
 
@@ -55,7 +83,12 @@ const CreateThread = () => {
         .eq("slug", slug)
         .single();
 
-      if (error || !data) {
+      if (error) {
+        if (isPermissionDenied(error)) {
+          setCategory(null);
+          return;
+        }
+
         Alert.alert("Error", "Category not found.");
         return;
       }
@@ -64,14 +97,54 @@ const CreateThread = () => {
     };
 
     fetchCategory();
-  }, [slug]);
+  }, [slug, authLoading, membershipLoading, user, isMember, router]);
 
-  // 🖼️ Choose image
-  const handleChooseImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      return Alert.alert("Permission denied", "Please allow photo access.");
+  const ensureMediaPermission = async () => {
+    try {
+      let permission = await ImagePicker.getMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      }
+
+      if (permission.granted) {
+        return true;
+      }
+
+      if (permission.canAskAgain === false) {
+        Alert.alert(
+          "Photo access needed",
+          "Photo access is currently blocked for this app. Please enable it in your phone settings.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                Linking.openSettings?.();
+              },
+            },
+          ]
+        );
+        return false;
+      }
+
+      Alert.alert(
+        "Permission denied",
+        "Please allow photo access to choose an image."
+      );
+      return false;
+    } catch (error) {
+      Alert.alert(
+        "Permission error",
+        error?.message || "Unable to check photo permissions."
+      );
+      return false;
     }
+  };
+
+  const handleChooseImage = async () => {
+    const hasPermission = await ensureMediaPermission();
+    if (!hasPermission) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -79,107 +152,215 @@ const CreateThread = () => {
       quality: 0.9,
     });
 
-    if (!result.canceled) {
+    if (!result.canceled && result.assets?.[0]?.uri) {
       const asset = result.assets[0];
-        Image.getSize(
-          asset.uri,
-          (width, height) => {
-            setImageRatio(width / height); // 👈 landscape > 1, portrait < 1
-            setImage(asset.uri);
-          },
-          () => {
-            setImage(asset.uri);
-          }
-        );
+
+      Image.getSize(
+        asset.uri,
+        (width, height) => {
+          setImageRatio(width / height);
+          setImage(asset.uri);
+        },
+        () => {
+          setImage(asset.uri);
+        }
+      );
     }
   };
 
-  // ☁️ Upload image to Supabase
   const uploadImage = async (uri) => {
     try {
       setUploading(true);
 
-      const fileExt = uri.split(".").pop() || "jpg";
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
+      if (!user?.id) {
+        throw new Error("Not logged in.");
+      }
 
-      const formData = new FormData();
-      formData.append("file", {
-        uri,
-        name: fileName,
-        type: `image/${fileExt}`,
+      const cleanUri = uri.split("?")[0];
+      const rawExt = cleanUri.split(".").pop()?.toLowerCase() || "jpg";
+      const normalizedExt = rawExt === "jpg" ? "jpeg" : rawExt;
+      const storedExt = rawExt === "jpeg" ? "jpg" : rawExt;
+      const fileName = `${Date.now()}.${storedExt}`;
+      const filePath = `${user.id}/${fileName}`;
+      const mimeType = `image/${normalizedExt}`;
+
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
       });
+
+      const binary = Buffer.from(base64, "base64");
 
       const { error } = await supabase.storage
         .from("post-images")
-        .upload(filePath, formData, {
-          contentType: `image/${fileExt}`,
+        .upload(filePath, binary, {
+          contentType: mimeType,
           upsert: false,
         });
 
-      if (error) throw error;
+      if (error) {
+        console.log("CreateThread storage upload error:", JSON.stringify(error, null, 2));
+        throw error;
+      }
 
-      const { data } = supabase.storage
-        .from("post-images")
-        .getPublicUrl(filePath);
+      const { data } = supabase.storage.from("post-images").getPublicUrl(filePath);
+
+      if (!data?.publicUrl) {
+        throw new Error("Failed to get public image URL.");
+      }
 
       return data.publicUrl;
     } catch (err) {
-      Alert.alert("Upload failed", err.message);
+      Alert.alert("Upload failed", err?.message || "Unable to upload image.");
       return null;
     } finally {
       setUploading(false);
     }
   };
 
+  const handleCreateThread = useCallback(async () => {
+    if (submittingRef.current) return;
 
-  // 🚀 Create thread
-  const handleCreateThread = async () => {
-    if (!title.trim())
-      return Alert.alert("Missing title", "Please enter a discussion title.");
+    if (!user) {
+      Alert.alert("Please log in", "You must be logged in to post.");
+      return;
+    }
 
-    if (!content.trim() && !image)
-      return Alert.alert("Empty post", "Add text or an image.");
+    if (membershipLoading) {
+      Alert.alert("Please wait", "Checking membership status...");
+      return;
+    }
 
-    if (!category)
-      return Alert.alert("Error", "Invalid category.");
+    if (!isMember) {
+      Alert.alert(
+        "Members-only",
+        "You need an active membership to create a post."
+      );
+      return;
+    }
+
+    if (!title.trim()) {
+      Alert.alert("Missing title", "Please enter a discussion title.");
+      return;
+    }
+
+    if (!content.trim() && !image) {
+      Alert.alert("Empty post", "Add text or an image.");
+      return;
+    }
+
+    if (!category) {
+      Alert.alert("Error", "Invalid category.");
+      return;
+    }
+
+    submittingRef.current = true;
 
     try {
       setLoading(true);
 
       const imageUrl = image ? await uploadImage(image) : null;
 
+      if (image && !imageUrl) {
+        return;
+      }
+
       const { error } = await supabase.from("forum_threads").insert([
         {
           category_id: category.id,
           author_id: user.id,
-          title,
-          body: content,
+          title: title.trim(),
+          body: content.trim(),
           image_url: imageUrl,
         },
       ]);
 
+      if (error) {
+        if (isPermissionDenied(error)) {
+          await refreshMembership?.();
+          Alert.alert(
+            "Members-only",
+            "Your membership may not be active. Please check your subscription."
+          );
+          return;
+        }
 
-      if (error) throw error;
+        throw error;
+      }
 
-      Alert.alert("Posted!", "Your discussion is live 🩵");
+      Alert.alert("Posted!", "Your discussion is live.");
       router.replace("/(dashboard)/forum");
     } catch (err) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Error", err?.message || "Unable to create post.");
     } finally {
+      submittingRef.current = false;
       setLoading(false);
       setTitle("");
       setContent("");
       setImage(null);
+      setImageRatio(1);
     }
-  };
+  }, [
+    user,
+    membershipLoading,
+    isMember,
+    title,
+    content,
+    image,
+    category,
+    router,
+    refreshMembership,
+  ]);
 
-  // ⛔ Wait for auth check
-  if (!authChecked) return null;
+  if (authLoading) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="small" color={theme.primary} />
+      </View>
+    );
+  }
+
+  if (!membershipLoading && user && !isMember) {
+    return (
+      <View style={[styles.loadingWrap, { paddingHorizontal: 20 }]}>
+        <Ionicons name="lock-closed" size={24} color={theme.iconMuted} />
+        <ThemedText style={{ marginTop: 10, fontWeight: "700" }}>
+          Members-only
+        </ThemedText>
+        <ThemedText muted style={{ marginTop: 6, textAlign: "center" }}>
+          You need an active membership to create a post.
+        </ThemedText>
+
+        {!!membershipError && (
+          <ThemedText muted style={{ marginTop: 6, textAlign: "center" }}>
+            We couldn't verify membership right now. Check your connection.
+          </ThemedText>
+        )}
+
+        <ThemedButton
+          style={[styles.postButton, { marginTop: 16 }]}
+          onPress={() => setShowSubscriptionModal(true)}
+        >
+          <ThemedText style={styles.postText}>View Membership</ThemedText>
+        </ThemedButton>
+
+        <TouchableOpacity onPress={refreshMembership} style={{ marginTop: 12 }}>
+          <ThemedText style={{ color: theme.primary, fontWeight: "600" }}>
+            Retry
+          </ThemedText>
+        </TouchableOpacity>
+
+        <SubscriptionModal
+          visible={showSubscriptionModal}
+          onClose={() => setShowSubscriptionModal(false)}
+          onCloseToMemberGate={() => setShowSubscriptionModal(false)}
+        />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#f0f8fb" }}
+      style={{ flex: 1, backgroundColor: theme.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
@@ -187,41 +368,54 @@ const CreateThread = () => {
         contentContainerStyle={{ paddingBottom: 100 }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* 🔙 Header */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={styles.backButton}
+            style={[styles.backButton, { backgroundColor: theme.surface }]}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="arrow-back" size={24} color="#0a84ff" />
+            <Ionicons name="arrow-back" size={18} color={theme.iconMuted} />
           </TouchableOpacity>
+
           <ThemedText title style={styles.headerTitle}>
             Create Post
           </ThemedText>
         </View>
 
-        {/* 🩵 Card */}
-        <View style={styles.card}>
-          <View style={styles.categoryPill}>
-            <Ionicons name="pricetag-outline" size={16} color="#0a84ff" />
-            <ThemedText style={styles.categoryText}>
+        <View style={[styles.card, { backgroundColor: theme.surface }]}>
+          <View
+            style={[
+              styles.categoryPill,
+              { backgroundColor: theme.uiBackground },
+            ]}
+          >
+            <Ionicons name="pricetag-outline" size={16} color={theme.primary} />
+            <ThemedText
+              style={[styles.categoryText, { color: theme.primary }]}
+            >
               {category?.name || "Loading..."}
             </ThemedText>
           </View>
 
           <TextInput
-            style={styles.questionInput}
+            style={[
+              styles.questionInput,
+              { backgroundColor: theme.uiBackground, color: theme.text },
+            ]}
             placeholder="Start a discussion..."
-            placeholderTextColor="#666"
+            placeholderTextColor={theme.textMuted}
             multiline
             value={title}
             onChangeText={setTitle}
           />
 
           <TextInput
-            style={styles.detailsInput}
+            style={[
+              styles.detailsInput,
+              { backgroundColor: theme.uiBackground, color: theme.text },
+            ]}
             placeholder="Share your thoughts..."
-            placeholderTextColor="#999"
+            placeholderTextColor={theme.textMuted}
             multiline
             value={content}
             onChangeText={setContent}
@@ -234,14 +428,18 @@ const CreateThread = () => {
                 style={[
                   styles.previewImage,
                   {
-                    height: imageRatio < 1 ? 360 : 220, // 👈 taller for portrait
+                    height: imageRatio < 1 ? 360 : 220,
                   },
                 ]}
                 resizeMode="contain"
               />
+
               <TouchableOpacity
                 style={styles.removeImageBtn}
-                onPress={() => setImage(null)}
+                onPress={() => {
+                  setImage(null);
+                  setImageRatio(1);
+                }}
               >
                 <Ionicons name="close" size={18} color="#fff" />
               </TouchableOpacity>
@@ -250,8 +448,8 @@ const CreateThread = () => {
 
           {uploading && (
             <View style={styles.uploading}>
-              <ActivityIndicator size="small" color="#0a84ff" />
-              <ThemedText style={{ marginLeft: 8 }}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <ThemedText style={{ marginLeft: 8, color: theme.text }}>
                 Uploading image...
               </ThemedText>
             </View>
@@ -262,16 +460,20 @@ const CreateThread = () => {
               onPress={handleChooseImage}
               style={styles.addImageRow}
             >
-              <Ionicons name="image-outline" size={20} color="#0a84ff" />
-              <ThemedText style={styles.addImageText}>Add Photo</ThemedText>
+              <Ionicons name="image-outline" size={20} color={theme.primary} />
+              <ThemedText
+                style={[styles.addImageText, { color: theme.primary }]}
+              >
+                Add Photo
+              </ThemedText>
             </TouchableOpacity>
           )}
 
           <View style={styles.submitBox}>
             <ThemedButton
               onPress={handleCreateThread}
-              disabled={loading || uploading}
-              style={styles.postButton}
+              disabled={loading || uploading || membershipLoading || !category}
+              style={[styles.postButton, { backgroundColor: theme.primary }]}
             >
               <ThemedText style={styles.postText}>
                 {loading ? "Posting..." : "Post Discussion"}
@@ -288,6 +490,7 @@ export default CreateThread;
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loadingWrap: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -295,10 +498,16 @@ const styles = StyleSheet.create({
     paddingTop: 55,
     paddingBottom: 8,
   },
-  backButton: { marginRight: 10 },
+  backButton: {
+    marginRight: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   headerTitle: { fontSize: 22, fontWeight: "700" },
   card: {
-    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 14,
@@ -307,7 +516,6 @@ const styles = StyleSheet.create({
   categoryPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#e3f2fd",
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -315,17 +523,14 @@ const styles = StyleSheet.create({
   },
   categoryText: {
     marginLeft: 6,
-    color: "#0a84ff",
     fontWeight: "600",
   },
   questionInput: {
-    backgroundColor: "#f4f8fa",
     borderRadius: 10,
     padding: 12,
     fontSize: 16,
   },
   detailsInput: {
-    backgroundColor: "#f4f8fa",
     borderRadius: 10,
     padding: 12,
     marginTop: 10,
@@ -346,12 +551,12 @@ const styles = StyleSheet.create({
   },
   uploading: { flexDirection: "row", marginTop: 8 },
   addImageRow: { flexDirection: "row", marginTop: 14 },
-  addImageText: { marginLeft: 6, fontWeight: "600", color: "#0a84ff" },
+  addImageText: { marginLeft: 6, fontWeight: "600" },
   submitBox: { marginTop: 24 },
   postButton: {
-    backgroundColor: "#0a84ff",
     borderRadius: 10,
     paddingVertical: 12,
+    paddingHorizontal: 18,
   },
   postText: { color: "#fff", textAlign: "center", fontWeight: "700" },
 });

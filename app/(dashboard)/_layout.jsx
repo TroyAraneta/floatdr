@@ -1,30 +1,41 @@
-import { Tabs, usePathname } from "expo-router";
-import { useColorScheme, View, StyleSheet, StatusBar } from "react-native";
+import { Tabs, usePathname, Redirect } from "expo-router";
+import { StyleSheet, StatusBar } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors } from "../../constants/colors";
+import { useTheme } from "../../contexts/ThemeContext";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import CustomHeader from "../../components/CustomHeader";
+import { useAuth } from "../../contexts/SupabaseAuthContext";
 
 export default function DashboardLayout() {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme] ?? Colors.light;
+  const { user, loading } = useAuth();
+  const { theme } = useTheme();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
 
-  // Hide header for certain screens (optional)
+  if (loading) {
+    return null;
+  }
+
+  if (!user) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
+  // Hide header for certain screens
   const hideHeader =
     pathname.includes("Menu") || pathname.includes("thread/");
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#1877f2" />
-
-      {/* ✅ Show header unless on specific screens */}
-      {!hideHeader && <CustomHeader />}
+    <>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={theme.navBackground}
+      />
 
       <Tabs
         screenOptions={{
-          headerShown: false,
+          headerShown: !hideHeader,
+          header: () => <CustomHeader />,
+
           tabBarStyle: {
             backgroundColor: theme.navBackground,
             borderTopWidth: 0,
@@ -35,6 +46,9 @@ export default function DashboardLayout() {
           tabBarLabelStyle: { fontSize: 12 },
           tabBarActiveTintColor: theme.iconColorFocused,
           tabBarInactiveTintColor: theme.iconColor,
+          sceneStyle: {
+            backgroundColor: theme.background,
+          },
         }}
       >
         <Tabs.Screen
@@ -51,7 +65,6 @@ export default function DashboardLayout() {
           }}
         />
 
-        {/* ✅ Updated Forum tab to use your (forumtab) folder */}
         <Tabs.Screen
           name="forum"
           options={{
@@ -108,13 +121,8 @@ export default function DashboardLayout() {
           }}
         />
       </Tabs>
-    </View>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-});
+const styles = StyleSheet.create({});

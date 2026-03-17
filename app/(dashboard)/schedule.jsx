@@ -1,166 +1,283 @@
-import React from "react";
+﻿import React, { useState } from "react";
 import {
-  View,
   ScrollView,
   StyleSheet,
   Image,
-  TouchableOpacity,
   Linking,
+  View,
+  Pressable,
+  Platform,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+
+import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
+import ThemedCard from "../../components/ThemedCard";
+import ThemedButton from "../../components/ThemedButton";
 import Spacer from "../../components/Spacer";
+import { useTheme } from "../../contexts/ThemeContext";
 
 const Schedule = () => {
-  const handleOpenLink = async (url) => {
-    const supported = await Linking.canOpenURL(url);
-    if (supported) await Linking.openURL(url);
+  const { theme } = useTheme();
+  const router = useRouter();
+
+  // Store image ratios dynamically per service
+  const [imageRatios, setImageRatios] = useState({});
+
+  const openLink = async (url) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      }
+    } catch (error) {
+      console.warn("Failed to open URL:", error);
+    }
   };
 
-  const ServiceCard = ({ title, tagline, desc, points, image, links }) => (
-    <View style={styles.card}>
-      <ThemedText title style={styles.title}>
-        {title}
-      </ThemedText>
-      <ThemedText style={styles.tagline}>{tagline}</ThemedText>
-      <ThemedText style={styles.desc}>{desc}</ThemedText>
+  const ServiceCard = ({ id, title, tagline, highlights, image, actions }) => {
+    const isSingleAction = actions.length === 1;
 
-      {points?.map((point, i) => (
-        <ThemedText key={i} style={styles.point}>
-          ✅ {point}
-        </ThemedText>
-      ))}
+    return (
+      <ThemedCard style={styles.card}>
+        {/* Image */}
+        {image && (
+          <Image
+            source={image}
+            style={[
+              styles.image,
+              { backgroundColor: theme.uiBackground },
+              {
+                height:
+                  imageRatios[id] && imageRatios[id] < 1
+                    ? 280
+                    : 200,
+              },
+            ]}
+            resizeMode="contain"
+            onLoad={(e) => {
+              const { width, height } = e.nativeEvent.source;
+              setImageRatios((prev) => ({
+                ...prev,
+                [id]: width / height,
+              }));
+            }}
+            accessible
+            accessibilityLabel={`${title} image`}
+          />
+        )}
 
-      {image && <Image source={image} style={styles.image} resizeMode="cover" />}
+        {/* Content */}
+        <View style={styles.cardContent}>
+          {/* Title row */}
+          <View style={styles.titleRow}>
+            <ThemedText title style={styles.title}>
+              {title}
+            </ThemedText>
 
-      <Spacer height={3} />
-      <View style={styles.buttonRow}>
-        {links.map((link, i) => (
-          <TouchableOpacity
-            key={i}
-            style={styles.button}
-            onPress={() => handleOpenLink(link.url)}
-          >
-            <ThemedText style={styles.buttonText}>{link.label}</ThemedText>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
-  );
+            {/* Small icon chip to add modern feel without clutter */}
+            <View
+              style={[
+                styles.chip,
+                { backgroundColor: theme.uiBackground },
+              ]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Ionicons
+                name="calendar-outline"
+                size={16}
+                color={theme.iconMuted}
+              />
+            </View>
+          </View>
+
+          <ThemedText muted style={styles.tagline}>
+            {tagline}
+          </ThemedText>
+
+          <Spacer height={12} />
+
+          {/* Highlights */}
+          <View style={styles.highlights}>
+            {highlights.map((item, index) => (
+              <View key={index} style={styles.highlightRow}>
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={16}
+                  color={theme.iconMuted}
+                  style={styles.highlightIcon}
+                />
+                <ThemedText style={styles.highlightText}>
+                  {item}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+
+          <Spacer height={16} />
+
+          {/* Actions */}
+          <View style={styles.buttonRow}>
+            {actions.map((action, index) => {
+              const isPrimary = index === 0; // first button is primary
+              return (
+                <ThemedButton
+                  key={index}
+                  style={[
+                    styles.button,
+                    isSingleAction && styles.buttonFull,
+                    // Secondary button look (minimal)
+                    !isPrimary && [
+                      styles.secondaryButton,
+                      { backgroundColor: theme.uiBackground },
+                    ],
+                  ]}
+                  onPress={() => openLink(action.url)}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                >
+                  <ThemedText
+                    style={[
+                      styles.buttonText,
+                      !isPrimary && { color: theme.text },
+                    ]}
+                  >
+                    {action.label}
+                  </ThemedText>
+                </ThemedButton>
+              );
+            })}
+          </View>
+
+          {/* Subtle helper under actions */}
+          <ThemedText muted style={styles.helperText}>
+            Opens booking in your browser
+          </ThemedText>
+        </View>
+      </ThemedCard>
+    );
+  };
 
   return (
-    <View style={styles.screen}>
+    <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <ThemedText title style={styles.pageTitle}>
-          Services
-        </ThemedText>
+        {/* Header */}
+        <View style={{ flex: 1 }}>
+          <ThemedText title style={styles.pageTitle}>
+            Schedule a Service
+          </ThemedText>
+          <ThemedText muted style={styles.pageSubtitle}>
+            Choose a service and book in seconds.
+          </ThemedText>
+        </View>
 
-        <Spacer height={25} />
+        <Spacer height={18} />
 
-        {/* Float Therapy */}
         <ServiceCard
+          id="float-therapy"
           title="Float Therapy"
-          tagline="Feel weightless, think clearly, and breathe deeper."
-          desc='Float therapy (also known as "sensory deprivation", "isolation therapy", or "REST") places your body in a gravity-free, soundproof Float Lab tank filled with 1200 pounds of Epsom salt, allowing your mind and muscles to release fully.'
-          points={[
-            "Reduces anxiety, stress, and mental overwhelm",
-            "Relieves tension, joint pain, and inflammation",
-            "Promotes restful sleep and mental clarity",
-            "Triggers the body’s natural healing response",
-          ]}
+          tagline="Weightless calm for body and mind"
           image={require("../../assets/img/FloatTherapy.jpg")}
-          links={[
-            { label: "Book 90-min Float", url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/4388609/calendar/any?appointmentTypeIds[]=4388609" },
-            { label: "Book 60-min Float", url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/4746050/calendar/any?appointmentTypeIds[]=4746050" },
+          highlights={[
+            "Deep stress & anxiety relief",
+            "Eases pain & muscle tension",
+            "Improves sleep & mental clarity",
+            "90 or 60 minute sessions",
+          ]}
+          actions={[
+            {
+              label: "Book 90 min",
+              url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/4388609/calendar/any?appointmentTypeIds[]=4388609",
+            },
+            {
+              label: "Book 60 min",
+              url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/4746050/calendar/any?appointmentTypeIds[]=4746050",
+            },
           ]}
         />
 
-        {/* Infrared Sauna */}
         <ServiceCard
+          id="infrared-sauna"
           title="Infrared Sauna"
-          tagline="Heat your body from the inside out."
-          desc="Our full-spectrum infrared sauna uses gentle heat to detox your system, reduce inflammation, and boost circulation. Unlike traditional steam saunas, it works deeper without overwhelming your lungs or senses."
-          points={[
-            "Flushes toxins and heavy metals",
-            "Eases chronic inflammation and joint pain",
-            "Supports metabolism, skin clarity, and stress relief",
-            "Perfect before a float for maximum relaxation",
+          tagline="Detox, sweat, and restore"
+          image={require("../../assets/img/Sauna.png")}
+          highlights={[
+            "Full-spectrum infrared heat",
+            "Reduces inflammation",
+            "Boosts circulation",
+            "Great before a float",
           ]}
-          image={require("../../assets/img/FDLogo.png")}
-          links={[{ label: "Book Sauna", url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/12484135/calendar/any?appointmentTypeIds[]=12484135" }]}
+          actions={[
+            {
+              label: "Book Sauna",
+              url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/12484135/calendar/any?appointmentTypeIds[]=12484135",
+            },
+          ]}
         />
 
-        {/* Zero-Gravity Massage */}
         <ServiceCard
+          id="massage"
           title="Zero-Gravity Massage"
-          tagline="Deep relief. No therapist required."
-          desc="Our high-tech zero-gravity massage chair mimics real hands using rollers, vibration, and body scanning tech to relieve tension and improve circulation. You’ll leave feeling loose, grounded, and recharged."
-          points={[
-            "Scanning Technology",
-            "Targets back, neck, legs, and hips",
-            "Enhances blood flow and lymph drainage",
-            "Perfect for stress, tension, and recovery",
+          tagline="Deep relief, zero effort"
+          image={require("../../assets/img/ZeroGravity.png")}
+          highlights={[
+            "Full-body scanning tech",
+            "Targets neck, back & legs",
+            "Boosts circulation",
+            "No therapist required",
           ]}
-          image={require("../../assets/img/FDLogo.png")}
-          links={[{ label: "Book Massage", url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/8813986/calendar/any?appointmentTypeIds[]=8813986" }]}
+          actions={[
+            {
+              label: "Book Massage",
+              url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/8813986/calendar/any?appointmentTypeIds[]=8813986",
+            },
+          ]}
         />
 
-        {/* 1:1 Private Consultation */}
         <ServiceCard
+          id="consultation"
           title="1:1 Private Consultation"
-          tagline="Not sure where to start? Get a personalized plan for healing."
-          desc="Meet Elizabeth Heitzmann, MA, LPC — licensed psychotherapist and certified integrative mental health practitioner. Together, explore what’s weighing on you and build a custom healing path."
-          points={[
-            "Personalized emotional and physical wellness support",
-            "Guidance for stress, anxiety, burnout, or trauma",
-            "A safe space to be seen, heard, and helped",
-            "Tools and techniques for everyday life",
-          ]}
+          tagline="Personalized support & guidance"
           image={require("../../assets/img/Consultation.jpg")}
-          links={[
-            { label: "Book Consultation", url: "https://www.floatdr.net/float-club" },
+          highlights={[
+            "Licensed therapist support",
+            "Stress, anxiety & burnout care",
+            "Custom wellness plans",
+          ]}
+          actions={[
+            {
+              label: "Book Consultation",
+              url: "https://www.floatdr.net/float-club",
+            },
           ]}
         />
 
-        {/* Therapeutic Supplements */}
         <ServiceCard
-          title="Therapeutic Supplements"
-          tagline="The right support can make all the difference."
-          desc="Through our partnership with Fullscript, order therapist-approved supplements shipped right to your door for better sleep, focus, and energy."
-          points={[
-            "Only top-tier, clean, and effective products",
-            "Great for sleep, focus, stress, and energy",
-            "Safe, tested, and curated by professionals",
-            "Auto-delivery options + reward points",
-          ]}
-          image={require("../../assets/img/FDLogo.png")}
-          links={[
-            { label: "Order Now", url: "https://us.fullscript.com/welcome/floatdoctor/store-start" },
-          ]}
-        />
-
-        {/* The Trifecta Combo */}
-        <ServiceCard
+          id="trifecta"
           title="The Trifecta Combo"
-          tagline="Experience the ultimate Float Doctor reset."
-          desc="Combining Float Therapy, Infrared Sauna, and Zero-Gravity Massage for complete body and mind rejuvenation."
-          points={[
-            "Deep physical & mental relaxation",
-            "Enhanced recovery & circulation",
-            "Ideal for stress, fatigue, and pain",
-          ]}
+          tagline="The ultimate Float Doctor reset"
           image={require("../../assets/img/Trifecta.jpg")}
-          links={[
-            { label: "Book The Trifecta", url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/24834294/calendar/any?appointmentTypeIds[]=24834294" },
+          highlights={[
+            "Float + Sauna + Massage",
+            "Maximum relaxation & recovery",
+            "Best value experience",
+          ]}
+          actions={[
+            {
+              label: "Book Trifecta",
+              url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/24834294/calendar/any?appointmentTypeIds[]=24834294",
+            },
           ]}
         />
 
         <Spacer height={40} />
       </ScrollView>
-    </View>
+    </ThemedView>
   );
 };
 
@@ -169,76 +286,112 @@ export default Schedule;
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#e6f4f9",
   },
-  scrollView: {
-    backgroundColor: "#e6f4f9",
-  },
-  scroll: {
-    padding: 20,
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 100,
   },
   pageTitle: {
-    fontSize: 22, 
+    fontSize: 22,
     fontWeight: "800",
-    color: "#1c1e21",
-    textAlign: "left",
+    letterSpacing: -0.5,
   },
+  pageSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+  },
+
+  // Cards
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 25,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    marginBottom: 20,
+    padding: 0, // Override ThemedCard default padding
+    overflow: "hidden",
   },
-  title: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1c1e21",
-    marginBottom: 6,
-  },
-  tagline: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0a84ff",
-    marginBottom: 10,
-  },
-  desc: {
-    fontSize: 14,
-    color: "#555",
-    marginBottom: 10,
-  },
-  point: {
-    fontSize: 14,
-    color: "#333",
-    marginBottom: 4,
-  },
+
   image: {
     width: "100%",
-    height: 310,
-    borderRadius: 14,
-    marginTop: 12,
   },
+
+  cardContent: {
+    padding: 18,
+  },
+
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  chip: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    flex: 1,
+  },
+
+  tagline: {
+    fontSize: 14,
+    marginTop: 6,
+    lineHeight: 18,
+  },
+
+  highlights: {
+    gap: 8,
+  },
+
+  highlightRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  highlightIcon: {
+    marginTop: 1,
+    marginRight: 8,
+  },
+
+  highlightText: {
+    fontSize: 14,
+    lineHeight: 20,
+    flex: 1,
+  },
+
   buttonRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 10,
+    gap: 10,
   },
+
   button: {
     flex: 1,
-    backgroundColor: "#0a84ff",
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    marginHorizontal: 4,
-    marginTop: 6,
+    minHeight: 44,
   },
+
+  buttonFull: {
+    flex: 1,
+  },
+
+  // Secondary button (still uses ThemedButton, but looks lighter)
+  secondaryButton: {
+    // backgroundColor injected from theme.uiBackground
+  },
+
   buttonText: {
     color: "#fff",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 15,
   },
+
+  helperText: {
+    fontSize: 12,
+    marginTop: 10,
+  },
 });
+

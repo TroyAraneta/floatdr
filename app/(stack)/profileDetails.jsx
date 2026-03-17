@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -14,6 +14,7 @@ import { supabase } from "../../lib/supabase";
 import ThemedText from "../../components/ThemedText";
 import Spacer from "../../components/Spacer";
 import { useRouter } from "expo-router";
+import { useTheme } from "../../contexts/ThemeContext";
 
 const ProfileDetails = () => {
   const [userData, setUserData] = useState(null);
@@ -21,6 +22,7 @@ const ProfileDetails = () => {
   const [loading, setLoading] = useState(true);
   const [menuVisible, setMenuVisible] = useState(null);
   const router = useRouter();
+  const { theme } = useTheme();
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -32,7 +34,6 @@ const ProfileDetails = () => {
         } = await supabase.auth.getUser();
         if (userError || !user) throw new Error("No user logged in.");
 
-        // Fetch profile info
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("username, bio, avatar_url")
@@ -47,7 +48,6 @@ const ProfileDetails = () => {
           ...profileData,
         });
 
-        // Fetch posts authored by the user
         const { data: postsData, error: postsError } = await supabase
           .from("forums")
           .select("id, content, image_url, created_at")
@@ -102,35 +102,41 @@ const ProfileDetails = () => {
 
   if (loading)
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3C5A99" />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
 
   if (!userData)
     return (
-      <View style={styles.center}>
-        <ThemedText>No profile data available.</ThemedText>
+      <View style={[styles.center, { backgroundColor: theme.background }]}>
+        <ThemedText style={{ color: theme.text }}>No profile data available.</ThemedText>
       </View>
     );
 
   return (
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[styles.container, { backgroundColor: theme.background }]}
       showsVerticalScrollIndicator={false}
     >
-      {/* ✅ Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[styles.backButton, { backgroundColor: theme.surface }]}
+        >
+          <Ionicons name="arrow-back" size={24} color={theme.icon} />
         </TouchableOpacity>
-        <ThemedText title style={styles.headerTitle}>
+        <ThemedText title style={[styles.headerTitle, { color: theme.title }]}>
           Profile Details
         </ThemedText>
       </View>
 
-      {/* ✅ Profile Info */}
-      <View style={styles.profileSection}>
+      <View
+        style={[
+          styles.profileSection,
+          { backgroundColor: theme.surface, shadowColor: theme.shadow },
+        ]}
+      >
         <Image
           source={{
             uri:
@@ -139,43 +145,41 @@ const ProfileDetails = () => {
           }}
           style={styles.avatar}
         />
-        <ThemedText style={styles.username}>
+        <ThemedText style={[styles.username, { color: theme.title }]}>
           {userData.username || "User"}
         </ThemedText>
-        <ThemedText style={styles.email}>{userData.email}</ThemedText>
+        <ThemedText style={[styles.email, { color: theme.textMuted }]}>{userData.email}</ThemedText>
 
         {userData.bio ? (
-          <ThemedText style={styles.bio}>{userData.bio}</ThemedText>
+          <ThemedText style={[styles.bio, { color: theme.text }]}>{userData.bio}</ThemedText>
         ) : (
-          <ThemedText style={styles.bioPlaceholder}>No bio yet</ThemedText>
+          <ThemedText style={[styles.bioPlaceholder, { color: theme.textMuted }]}>No bio yet</ThemedText>
         )}
       </View>
 
       <Spacer height={20} />
 
-      {/* ✅ User Posts */}
-      <ThemedText title style={styles.sectionTitle}>
+      <ThemedText title style={[styles.sectionTitle, { color: theme.title }]}>
         Your Posts
       </ThemedText>
 
       {posts.length === 0 ? (
-        <ThemedText style={styles.noPosts}>
-          You haven’t posted anything yet.
-        </ThemedText>
+        <ThemedText style={[styles.noPosts, { color: theme.textMuted }]}>You haven't posted anything yet.</ThemedText>
       ) : (
         posts.map((post) => (
-          <View key={post.id} style={styles.postCard}>
-            {/* 3-dot menu */}
+          <View
+            key={post.id}
+            style={[styles.postCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
+          >
             <View style={styles.postTopBar}>
               <TouchableOpacity
                 onPress={() =>
                   setMenuVisible(menuVisible === post.id ? null : post.id)
                 }
               >
-                <Ionicons name="ellipsis-vertical" size={20} color="#555" />
+                <Ionicons name="ellipsis-vertical" size={20} color={theme.iconMuted} />
               </TouchableOpacity>
 
-              {/* Dropdown Menu */}
               <Modal
                 transparent
                 visible={menuVisible === post.id}
@@ -186,13 +190,13 @@ const ProfileDetails = () => {
                   style={styles.modalOverlay}
                   onPress={() => setMenuVisible(null)}
                 >
-                  <View style={styles.menuContainer}>
+                  <View style={[styles.menuContainer, { backgroundColor: theme.surface }]}> 
                     <TouchableOpacity
                       style={styles.menuItem}
                       onPress={() => handleSavePost(post)}
                     >
-                      <Ionicons name="bookmark-outline" size={18} color="#333" />
-                      <ThemedText style={styles.menuText}>Save Post</ThemedText>
+                      <Ionicons name="bookmark-outline" size={18} color={theme.icon} />
+                      <ThemedText style={[styles.menuText, { color: theme.text }]}>Save Post</ThemedText>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -202,10 +206,8 @@ const ProfileDetails = () => {
                         Alert.alert("Download", "Download image feature coming soon!");
                       }}
                     >
-                      <Ionicons name="download-outline" size={18} color="#333" />
-                      <ThemedText style={styles.menuText}>
-                        Download Image
-                      </ThemedText>
+                      <Ionicons name="download-outline" size={18} color={theme.icon} />
+                      <ThemedText style={[styles.menuText, { color: theme.text }]}>Download Image</ThemedText>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -215,8 +217,8 @@ const ProfileDetails = () => {
                         Alert.alert("Edit Post", "Edit post feature coming soon!");
                       }}
                     >
-                      <Ionicons name="create-outline" size={18} color="#333" />
-                      <ThemedText style={styles.menuText}>Edit Post</ThemedText>
+                      <Ionicons name="create-outline" size={18} color={theme.icon} />
+                      <ThemedText style={[styles.menuText, { color: theme.text }]}>Edit Post</ThemedText>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -226,12 +228,8 @@ const ProfileDetails = () => {
                         handleDelete(post.id);
                       }}
                     >
-                      <Ionicons name="trash-outline" size={18} color="#c0392b" />
-                      <ThemedText
-                        style={[styles.menuText, { color: "#c0392b" }]}
-                      >
-                        Delete Post
-                      </ThemedText>
+                      <Ionicons name="trash-outline" size={18} color={theme.danger} />
+                      <ThemedText style={[styles.menuText, { color: theme.danger }]}>Delete Post</ThemedText>
                     </TouchableOpacity>
                   </View>
                 </TouchableOpacity>
@@ -239,12 +237,12 @@ const ProfileDetails = () => {
             </View>
 
             {post.content && (
-              <ThemedText style={styles.postContent}>{post.content}</ThemedText>
+              <ThemedText style={[styles.postContent, { color: theme.text }]}>{post.content}</ThemedText>
             )}
             {post.image_url && (
               <Image source={{ uri: post.image_url }} style={styles.postImage} />
             )}
-            <ThemedText style={styles.postDate}>
+            <ThemedText style={[styles.postDate, { color: theme.textMuted }]}>
               {new Date(post.created_at).toLocaleString()}
             </ThemedText>
           </View>
@@ -260,10 +258,14 @@ export default ProfileDetails;
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#F9FAFB",
     padding: 20,
   },
   loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
@@ -275,6 +277,11 @@ const styles = StyleSheet.create({
   },
   backButton: {
     marginRight: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     fontSize: 22,
@@ -282,10 +289,8 @@ const styles = StyleSheet.create({
   },
   profileSection: {
     alignItems: "center",
-    backgroundColor: "#fff",
     paddingVertical: 20,
     borderRadius: 15,
-    shadowColor: "#000",
     shadowOpacity: 0.08,
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 5,
@@ -300,36 +305,29 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#222",
   },
   email: {
     fontSize: 14,
-    color: "#555",
   },
   bio: {
     marginTop: 10,
     fontSize: 15,
     textAlign: "center",
-    color: "#333",
     paddingHorizontal: 20,
   },
   bioPlaceholder: {
     marginTop: 10,
     fontSize: 14,
-    color: "#888",
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#222",
     marginBottom: 10,
   },
   postCard: {
-    backgroundColor: "#fff",
     borderRadius: 10,
     padding: 12,
     marginBottom: 14,
-    shadowColor: "#000",
     shadowOpacity: 0.08,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
@@ -342,7 +340,6 @@ const styles = StyleSheet.create({
   },
   postContent: {
     fontSize: 15,
-    color: "#333",
     marginBottom: 8,
   },
   postImage: {
@@ -353,11 +350,9 @@ const styles = StyleSheet.create({
   },
   postDate: {
     fontSize: 12,
-    color: "#777",
     textAlign: "right",
   },
   noPosts: {
-    color: "#666",
     textAlign: "center",
     marginTop: 10,
   },
@@ -368,7 +363,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.2)",
   },
   menuContainer: {
-    backgroundColor: "#fff",
     borderRadius: 10,
     paddingVertical: 8,
     width: 200,

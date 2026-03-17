@@ -1,10 +1,32 @@
 import { Pressable, StyleSheet } from "react-native";
 import { Colors } from "../constants/colors";
+import { useTheme } from "../contexts/ThemeContext";
 
-function ThemedButton({ style, children, ...props }) {
+function ThemedButton({
+  style,
+  children,
+  disabled = false,
+  ...props
+}) {
+  const { theme, isDark } = useTheme();
+
+
   return (
     <Pressable
-      style={({ pressed }) => [styles.btn, pressed && styles.pressed, style]}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.base,
+        {
+          backgroundColor: disabled
+            ? theme.uiBackground
+            : theme.isDark
+              ? theme.navBackground
+              : Colors.primary,
+        },
+        pressed && !disabled && styles.pressed,
+        disabled && styles.disabled,
+        style,
+      ]}
       {...props}
     >
       {children}
@@ -12,18 +34,22 @@ function ThemedButton({ style, children, ...props }) {
   );
 }
 
+export default ThemedButton;
+
 const styles = StyleSheet.create({
-  btn: {
-    backgroundColor: Colors.primary,
-    padding: 18,
-    borderRadius: 6,
-    marginVertical: 10,
+  base: {
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
+
   pressed: {
-    opacity: 0.5,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }], // subtle, calm feedback
+  },
+
+  disabled: {
+    opacity: 0.6,
   },
 });
-
-export default ThemedButton;

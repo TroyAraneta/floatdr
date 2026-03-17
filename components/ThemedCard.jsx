@@ -1,23 +1,34 @@
-import { StyleSheet, useColorScheme, View } from 'react-native'
-import { Colors } from '../constants/colors'
+import { StyleSheet, View } from "react-native";
+import { useTheme } from "../contexts/ThemeContext";
 
 const ThemedCard = ({ style, ...props }) => {
-  const colorScheme = useColorScheme()
-  const theme = Colors[colorScheme] ?? Colors.light
+  const { theme, isDark } = useTheme();
 
   return (
-    <View 
-      style={[{ backgroundColor: theme.uiBackground}, styles.card, style]}
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: isDark
+            ? theme.navBackground   // match header in dark
+            : theme.surface,
+        },
+        style,
+      ]}
       {...props}
     />
-  )
-}
+  );
+};
 
-export default ThemedCard
+export default ThemedCard;
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 5,
-    padding: 20
-  }
-})
+    borderRadius: 14,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+});
