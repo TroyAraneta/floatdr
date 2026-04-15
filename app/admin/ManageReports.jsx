@@ -1,17 +1,26 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  View,
   ActivityIndicator,
-  TouchableOpacity,
   Alert,
   StyleSheet,
   FlatList,
+  View,
+  Pressable,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import ThemedView from "../../components/ThemedView";
+import ThemedCard from "../../components/ThemedCard";
+import ThemedButton from "../../components/ThemedButton";
 import ThemedText from "../../components/ThemedText";
+import Spacer from "../../components/Spacer";
+import { useTheme } from "../../contexts/ThemeContext";
 import useAdminStatus from "../../hooks/useAdminStatus";
 
 const ManageReports = () => {
+  const router = useRouter();
+  const { theme } = useTheme();
   const { isAdmin, loading: adminLoading } = useAdminStatus();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +42,7 @@ const ManageReports = () => {
           notes,
           created_at,
           thread_id,
+          reply_id,
           reporter_id,
           forum_threads ( title )
         `)
@@ -84,20 +94,50 @@ const ManageReports = () => {
     fetchReports(true);
   }, [fetchReports]);
 
-  const handleDeleteReport = useCallback((id) => {
-    Alert.alert("Confirm", "Delete this report?", [
+  const handleDeleteReport = useCallback((item) => {
+    const hasReply = !!item.reply_id;
+
+    Alert.alert("Manage Report", "What would you like to do?", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Delete",
-        style: "destructive",
+        // Dismiss: remove the report only, keep the content
+        text: "Dismiss Report",
+        style: "default",
         onPress: async () => {
           try {
             const { error } = await supabase
               .from("moderation_reports")
               .delete()
-              .eq("id", id);
+              .eq("id", item.id);
             if (error) throw error;
-            setReports((prev) => prev.filter((report) => report.id !== id));
+            setReports((prev) => prev.filter((r) => r.id !== item.id));
+          } catch (err) {
+            Alert.alert("Error", err.message);
+          }
+        },
+      },
+      {
+        // Delete content: cascade will auto-delete the report too
+        text: "Delete Content",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            if (hasReply) {
+              const { error } = await supabase
+                .from("forum_replies")
+                .delete()
+                .eq("id", item.reply_id);
+              if (error) throw error;
+            } else {
+              const { error } = await supabase
+                .from("forum_threads")
+                .delete()
+                .eq("id", item.thread_id);
+              if (error) throw error;
+            }
+
+            // No need to delete the report — cascade handles it
+            setReports((prev) => prev.filter((r) => r.id !== item.id));
           } catch (err) {
             Alert.alert("Error", err.message);
           }
@@ -108,54 +148,73 @@ const ManageReports = () => {
 
   const renderItem = useCallback(
     ({ item }) => (
-      <View style={styles.card}>
-        <ThemedText style={styles.reason}>Reason: {item.reason}</ThemedText>
+      <ThemedCard
+        style={[
+          styles.card,
+          { backgroundColor: theme.surface, shadowColor: theme.shadow },
+        ]}
+      >
+        <ThemedText style={[styles.reason, { color: theme.title }]}>
+          Reason: {item.reason}
+        </ThemedText>
         {item.notes ? (
-          <ThemedText style={styles.details}>Notes: {item.notes}</ThemedText>
+          <ThemedText style={[styles.details, { color: theme.text }]}>
+            Notes: {item.notes}
+          </ThemedText>
         ) : null}
-        <ThemedText style={styles.meta}>
+        <ThemedText style={[styles.meta, { color: theme.textMuted }]}>
           Reported by: {item.reporter_username || "Anonymous"}
         </ThemedText>
-        <ThemedText style={styles.meta}>
+        <ThemedText style={[styles.meta, { color: theme.textMuted }]}>
           Thread: {item.forum_threads?.title || "(deleted)"}
         </ThemedText>
-        <ThemedText style={styles.date}>
+        {item.reply_id ? (
+          <ThemedText style={[styles.meta, { color: theme.textMuted }]}>
+            Reply ID: {item.reply_id}
+          </ThemedText>
+        ) : null}
+        <ThemedText style={[styles.date, { color: theme.textMuted }]}>
           {new Date(item.created_at).toLocaleString()}
         </ThemedText>
 
         <View style={styles.actions}>
-          <TouchableOpacity
-            onPress={() => handleDeleteReport(item.id)}
-            style={styles.deleteBtn}
+          <ThemedButton
+            onPress={() => handleDeleteReport(item)}
+            style={[styles.deleteBtn, { backgroundColor: theme.warning }]}
           >
             <ThemedText style={{ color: "#fff" }}>Delete</ThemedText>
-          </TouchableOpacity>
+          </ThemedButton>
         </View>
-      </View>
+      </ThemedCard>
     ),
-    [handleDeleteReport]
+    [handleDeleteReport, theme]
   );
 
   if (adminLoading || loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-      </View>
+      <ThemedView style={[styles.center, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.icon} />
+      </ThemedView>
     );
   }
   if (!isAdmin) {
     return (
-      <View style={styles.center}>
-        <ThemedText style={styles.deniedTitle}>Access Denied</ThemedText>
-        <ThemedText style={styles.deniedBody}>
+      <ThemedView style={[styles.center, { backgroundColor: theme.background }]}>
+        <Ionicons name="lock-closed-outline" size={22} color={theme.iconMuted} />
+        <Spacer height={10} />
+        <ThemedText style={[styles.deniedTitle, { color: theme.title }]}>
+          Access Denied
+        </ThemedText>
+        <Spacer height={6} />
+        <ThemedText style={[styles.deniedBody, { color: theme.textMuted }]}>
           You must be an admin to view this page.
         </ThemedText>
-      </View>
+      </ThemedView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
       <FlatList
         data={reports}
         keyExtractor={(item) => item.id.toString()}
@@ -168,47 +227,91 @@ const ManageReports = () => {
         removeClippedSubviews
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <ThemedText title style={styles.title}>
-            Manage Reports
-          </ThemedText>
+          <>
+            <View style={styles.headerRow}>
+              <Pressable
+                onPress={() => router.replace("/(dashboard)/menu")}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                style={[styles.backButton, { backgroundColor: theme.surface }]}
+              >
+                <Ionicons name="arrow-back" size={18} color={theme.iconMuted} />
+              </Pressable>
+
+              <View style={{ flex: 1 }}>
+                <ThemedText
+                  title
+                  style={[styles.headerTitle, { color: theme.title }]}
+                >
+                  Manage Reports
+                </ThemedText>
+                <ThemedText muted style={{ color: theme.textMuted }}>
+                  Review and remove reported forum content.
+                </ThemedText>
+              </View>
+
+              <View style={styles.headerRightSpacer} />
+            </View>
+
+            <Spacer height={18} />
+          </>
         }
         ListEmptyComponent={
-          <ThemedText style={styles.emptyText}>No reports found.</ThemedText>
+          <ThemedText style={[styles.emptyText, { color: theme.textMuted }]}>
+            No reports found.
+          </ThemedText>
         }
+        ListFooterComponent={<Spacer height={40} />}
       />
-    </View>
+    </ThemedView>
   );
 };
 
 export default ManageReports;
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: "#fff", flex: 1 },
-  listContent: { padding: 16 },
+  screen: { flex: 1 },
+  listContent: { padding: 16, paddingBottom: 50 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  title: { fontSize: 22, marginBottom: 16, textAlign: "center" },
-  emptyText: { textAlign: "center", color: "#777" },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  headerRightSpacer: {
+    width: 40,
+    height: 40,
+  },
+  emptyText: { textAlign: "left" },
   card: {
-    backgroundColor: "#f9f9f9",
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 14,
     marginBottom: 14,
-    shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  reason: { fontWeight: "700", color: "#333" },
-  details: { marginTop: 4, color: "#444" },
-  meta: { fontSize: 13, color: "#666", marginTop: 4 },
-  date: { fontSize: 12, color: "#999", marginTop: 6 },
+  reason: { fontWeight: "800", fontSize: 15 },
+  details: { marginTop: 6, lineHeight: 20 },
+  meta: { fontSize: 13, marginTop: 4 },
+  date: { fontSize: 12, marginTop: 6 },
   actions: { flexDirection: "row", marginTop: 10 },
   deleteBtn: {
-    backgroundColor: "#e53935",
-    borderRadius: 8,
-    paddingVertical: 6,
+    borderRadius: 12,
     paddingHorizontal: 14,
   },
-  deniedTitle: { color: "red", fontWeight: "bold", fontSize: 16 },
-  deniedBody: { color: "#555", marginTop: 5 },
+  deniedTitle: { fontWeight: "900", fontSize: 16 },
+  deniedBody: { textAlign: "center" },
 });

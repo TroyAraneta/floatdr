@@ -6,159 +6,147 @@ import {
   Linking,
   View,
   Pressable,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import ThemedCard from "../../components/ThemedCard";
-import ThemedButton from "../../components/ThemedButton";
 import Spacer from "../../components/Spacer";
 import { useTheme } from "../../contexts/ThemeContext";
 
-const Schedule = () => {
-  const { theme } = useTheme();
-  const router = useRouter();
+const openLink = async (url) => {
+  try {
+    await Linking.openURL(url);
+  } catch (error) {
+    console.warn("Failed to open URL:", error);
+  }
+};
 
-  // Store image ratios dynamically per service
-  const [imageRatios, setImageRatios] = useState({});
+const ServiceCard = ({ id, title, tagline, highlights, image, actions, theme, imageRatios, setImageRatios }) => {
+  const isSingleAction = actions.length === 1;
 
-  const openLink = async (url) => {
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      }
-    } catch (error) {
-      console.warn("Failed to open URL:", error);
-    }
-  };
+  return (
+    <ThemedCard style={styles.card}>
+      {/* Image */}
+      {image && (
+        <Image
+          source={image}
+          style={[
+            styles.image,
+            { backgroundColor: theme.uiBackground },
+            {
+              height: imageRatios[id] && imageRatios[id] < 1 ? 280 : 200,
+            },
+          ]}
+          resizeMode="contain"
+          onLoad={(e) => {
+            const { width, height } = e.nativeEvent.source;
+            setImageRatios((prev) => ({
+              ...prev,
+              [id]: width / height,
+            }));
+          }}
+          accessible
+          accessibilityLabel={`${title} image`}
+        />
+      )}
 
-  const ServiceCard = ({ id, title, tagline, highlights, image, actions }) => {
-    const isSingleAction = actions.length === 1;
+      {/* Content */}
+      <View style={styles.cardContent}>
+        {/* Title row */}
+        <View style={styles.titleRow}>
+          <ThemedText title style={styles.title}>
+            {title}
+          </ThemedText>
 
-    return (
-      <ThemedCard style={styles.card}>
-        {/* Image */}
-        {image && (
-          <Image
-            source={image}
-            style={[
-              styles.image,
-              { backgroundColor: theme.uiBackground },
-              {
-                height:
-                  imageRatios[id] && imageRatios[id] < 1
-                    ? 280
-                    : 200,
-              },
-            ]}
-            resizeMode="contain"
-            onLoad={(e) => {
-              const { width, height } = e.nativeEvent.source;
-              setImageRatios((prev) => ({
-                ...prev,
-                [id]: width / height,
-              }));
-            }}
-            accessible
-            accessibilityLabel={`${title} image`}
-          />
-        )}
+          <View
+            style={[styles.chip, { backgroundColor: theme.uiBackground }]}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={16}
+              color={theme.iconMuted}
+            />
+          </View>
+        </View>
 
-        {/* Content */}
-        <View style={styles.cardContent}>
-          {/* Title row */}
-          <View style={styles.titleRow}>
-            <ThemedText title style={styles.title}>
-              {title}
-            </ThemedText>
+        <ThemedText muted style={styles.tagline}>
+          {tagline}
+        </ThemedText>
 
-            {/* Small icon chip to add modern feel without clutter */}
-            <View
-              style={[
-                styles.chip,
-                { backgroundColor: theme.uiBackground },
-              ]}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
+        <Spacer height={12} />
+
+        {/* Highlights */}
+        <View style={styles.highlights}>
+          {highlights.map((item, index) => (
+            <View key={index} style={styles.highlightRow}>
               <Ionicons
-                name="calendar-outline"
+                name="checkmark-circle-outline"
                 size={16}
                 color={theme.iconMuted}
+                style={styles.highlightIcon}
               />
+              <ThemedText style={styles.highlightText}>{item}</ThemedText>
             </View>
-          </View>
-
-          <ThemedText muted style={styles.tagline}>
-            {tagline}
-          </ThemedText>
-
-          <Spacer height={12} />
-
-          {/* Highlights */}
-          <View style={styles.highlights}>
-            {highlights.map((item, index) => (
-              <View key={index} style={styles.highlightRow}>
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={16}
-                  color={theme.iconMuted}
-                  style={styles.highlightIcon}
-                />
-                <ThemedText style={styles.highlightText}>
-                  {item}
-                </ThemedText>
-              </View>
-            ))}
-          </View>
-
-          <Spacer height={16} />
-
-          {/* Actions */}
-          <View style={styles.buttonRow}>
-            {actions.map((action, index) => {
-              const isPrimary = index === 0; // first button is primary
-              return (
-                <ThemedButton
-                  key={index}
-                  style={[
-                    styles.button,
-                    isSingleAction && styles.buttonFull,
-                    // Secondary button look (minimal)
-                    !isPrimary && [
-                      styles.secondaryButton,
-                      { backgroundColor: theme.uiBackground },
-                    ],
-                  ]}
-                  onPress={() => openLink(action.url)}
-                  accessibilityRole="button"
-                  accessibilityLabel={action.label}
-                >
-                  <ThemedText
-                    style={[
-                      styles.buttonText,
-                      !isPrimary && { color: theme.text },
-                    ]}
-                  >
-                    {action.label}
-                  </ThemedText>
-                </ThemedButton>
-              );
-            })}
-          </View>
-
-          {/* Subtle helper under actions */}
-          <ThemedText muted style={styles.helperText}>
-            Opens booking in your browser
-          </ThemedText>
+          ))}
         </View>
-      </ThemedCard>
-    );
-  };
+
+        <Spacer height={16} />
+
+        {/* Actions */}
+        <View style={styles.buttonRow}>
+          {actions.map((action, index) => {
+            const isPrimary = index === 0;
+
+            return (
+              <Pressable
+                key={index}
+                onPress={() => openLink(action.url)}
+                accessibilityRole="button"
+                accessibilityLabel={action.label}
+                style={({ pressed }) => [
+                  styles.button,
+                  isSingleAction && styles.buttonFull,
+                  {
+                    backgroundColor: isPrimary
+                      ? theme.primary || theme.navBackground || "#6B4EFF"
+                      : theme.uiBackground,
+                    borderColor: isPrimary
+                      ? theme.primary || theme.navBackground || "#6B4EFF"
+                      : theme.border || theme.iconMuted,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                  !isPrimary && styles.secondaryButton,
+                ]}
+              >
+                <ThemedText
+                  style={[
+                    styles.buttonText,
+                    { color: isPrimary ? "#fff" : theme.text },
+                  ]}
+                >
+                  {action.label}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Subtle helper under actions */}
+        <ThemedText muted style={styles.helperText}>
+          Opens booking in your browser
+        </ThemedText>
+      </View>
+    </ThemedCard>
+  );
+};
+
+const Schedule = () => {
+  const { theme } = useTheme();
+  const [imageRatios, setImageRatios] = useState({});
 
   return (
     <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -199,6 +187,9 @@ const Schedule = () => {
               url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/4746050/calendar/any?appointmentTypeIds[]=4746050",
             },
           ]}
+          theme={theme}
+          imageRatios={imageRatios}
+          setImageRatios={setImageRatios}
         />
 
         <ServiceCard
@@ -218,6 +209,9 @@ const Schedule = () => {
               url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/12484135/calendar/any?appointmentTypeIds[]=12484135",
             },
           ]}
+          theme={theme}
+          imageRatios={imageRatios}
+          setImageRatios={setImageRatios}
         />
 
         <ServiceCard
@@ -237,6 +231,9 @@ const Schedule = () => {
               url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/8813986/calendar/any?appointmentTypeIds[]=8813986",
             },
           ]}
+          theme={theme}
+          imageRatios={imageRatios}
+          setImageRatios={setImageRatios}
         />
 
         <ServiceCard
@@ -252,9 +249,12 @@ const Schedule = () => {
           actions={[
             {
               label: "Book Consultation",
-              url: "https://www.floatdr.net/float-club",
+              url: "https://floatdoctor1720.practicebetter.io/#/6931b9e1347f7cc047f8463e/bookings?s=69628f58b758cb04b2473adf&step=date",
             },
           ]}
+          theme={theme}
+          imageRatios={imageRatios}
+          setImageRatios={setImageRatios}
         />
 
         <ServiceCard
@@ -273,6 +273,9 @@ const Schedule = () => {
               url: "https://floatdoctorbooking.as.me/schedule/c8ab2b35/appointment/24834294/calendar/any?appointmentTypeIds[]=24834294",
             },
           ]}
+          theme={theme}
+          imageRatios={imageRatios}
+          setImageRatios={setImageRatios}
         />
 
         <Spacer height={40} />
@@ -305,7 +308,7 @@ const styles = StyleSheet.create({
   // Cards
   card: {
     marginBottom: 20,
-    padding: 0, // Override ThemedCard default padding
+    padding: 0,
     overflow: "hidden",
   },
 
@@ -371,22 +374,24 @@ const styles = StyleSheet.create({
 
   button: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
   },
 
   buttonFull: {
     flex: 1,
   },
 
-  // Secondary button (still uses ThemedButton, but looks lighter)
-  secondaryButton: {
-    // backgroundColor injected from theme.uiBackground
-  },
+  secondaryButton: {},
 
   buttonText: {
-    color: "#fff",
     fontWeight: "700",
     fontSize: 15,
+    textAlign: "center",
   },
 
   helperText: {
@@ -394,4 +399,3 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 });
-

@@ -8,41 +8,28 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { supabase } from "../lib/supabase";
 import { useTheme } from "../contexts/ThemeContext";
+import { useAuth } from "../contexts/SupabaseAuthContext";
 
 export default function AppEntry() {
   const router = useRouter();
   const { theme } = useTheme();
-
+  const { user, loading } = useAuth();
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    bootApp();
-  }, []);
-
-  const bootApp = async () => {
-    // Subtle fade-in (feels premium, not cringe)
     Animated.timing(opacity, {
       toValue: 1,
       duration: 350,
       useNativeDriver: true,
     }).start();
+  }, [opacity]);
 
-    // Immediately check auth (no artificial delay)
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+  useEffect(() => {
+    if (loading) return;
 
-    // Small delay ONLY so screen doesn’t flash too fast
-    setTimeout(() => {
-      if (session?.user) {
-        router.replace("/(dashboard)");
-      } else {
-        router.replace("/(auth)/login");
-      }
-    }, 400);
-  };
+    router.replace(user ? "/(dashboard)/home" : "/(auth)/login");
+  }, [loading, router, user]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -55,7 +42,6 @@ export default function AppEntry() {
           resizeMode="contain"
         />
 
-        {/* Subtle loading indicator */}
         <ActivityIndicator
           size="small"
           color={theme.primary}

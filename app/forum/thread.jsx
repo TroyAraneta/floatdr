@@ -28,6 +28,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function Thread() {
+  const REPLIES_PAGE_SIZE = 20;
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -46,6 +47,9 @@ export default function Thread() {
   const [userId, setUserId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMoreReplies, setLoadingMoreReplies] = useState(false);
+  const [topLevelReplyOffset, setTopLevelReplyOffset] = useState(0);
+  const [hasMoreReplies, setHasMoreReplies] = useState(false);
   const [sort, setSort] = useState("relevant"); // relevant | newest
   const [menuThread, setMenuThread] = useState(null);
   const [menuThreadPosition, setMenuThreadPosition] = useState({ x: 0, y: 0 });
@@ -61,11 +65,46 @@ export default function Thread() {
   const commentMenuButtonRefs = useRef({}).current;
   const listRef = useRef(null);
 
+  const mergeUniqueReplies = (previous, incoming) => {
+    const map = new Map();
+    previous.forEach((item) => map.set(item.id, item));
+    incoming.forEach((item) => map.set(item.id, item));
+    return Array.from(map.values());
+  };
+
+  const mergeUniqueReplyReactions = (previous, incoming) => {
+    const map = new Map();
+    previous.forEach((item) =>
+      map.set(`${item.reply_id}:${item.user_id}`, item)
+    );
+    incoming.forEach((item) =>
+      map.set(`${item.reply_id}:${item.user_id}`, item)
+    );
+    return Array.from(map.values());
+  };
+
   /* ---------------- USER ---------------- */
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) =>
-      setUserId(data?.user?.id ?? null)
-    );
+    let active = true;
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (active) {
+        setUserId(data?.user?.id ?? null);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) {
+        setUserId(session?.user?.id ?? null);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe?.();
+    };
   }, []);
 
   /* ---------------- KEYBOARD HANDLING ---------------- */
@@ -140,13 +179,65 @@ export default function Thread() {
     return data || null;
   };
 
-  const loadData = async () => {
-    // THREAD-SCOPED REACTIONS
-    const [
-      { data: replyData, error: replyError },
-      { data: threadReactionData, error: threadReactionError },
-    ] = await Promise.all([
-      supabase
+  const loadThreadReactions = async () => {
+    const { data, error } = await supabase
+      .from("thread_reactions")
+      .select("thread_id,user_id,type")
+      .eq("thread_id", id);
+
+    if (error) {
+      console.error("Failed to load thread reactions:", error);
+      Alert.alert("Error", "Failed to refresh reactions.");
+      setThreadReactions([]);
+      return;
+    }
+
+    setThreadReactions(data || []);
+  };
+
+  const loadRepliesPage = async ({ reset = false } = {}) => {
+    const nextOffset = reset ? 0 : topLevelReplyOffset;
+
+    if (!reset && loadingMoreReplies) return;
+
+    if (reset) {
+      setLoadingMoreReplies(false);
+      setTopLevelReplyOffset(0);
+      setHasMoreReplies(false);
+    } else {
+      setLoadingMoreReplies(true);
+    }
+
+    const { data: topLevelData, error: topLevelError } = await supabase
+      .from("forum_replies")
+      .select(`
+        id,
+        body,
+        created_at,
+        author_id,
+        parent_id,
+        profiles ( username, avatar_url )
+      `)
+      .eq("thread_id", id)
+      .is("parent_id", null)
+      .order("created_at", { ascending: false })
+      .range(nextOffset, nextOffset + REPLIES_PAGE_SIZE - 1);
+
+    if (topLevelError) {
+      console.error("Failed to load replies:", topLevelError);
+      Alert.alert("Error", "Failed to refresh comments.");
+      if (!reset) {
+        setLoadingMoreReplies(false);
+      }
+      return;
+    }
+
+    const topLevelReplies = topLevelData || [];
+    const topLevelIds = topLevelReplies.map((item) => item.id);
+
+    let childReplies = [];
+    if (topLevelIds.length > 0) {
+      const { data: childData, error: childError } = await supabase
         .from("forum_replies")
         .select(`
           id,
@@ -156,43 +247,66 @@ export default function Thread() {
           parent_id,
           profiles ( username, avatar_url )
         `)
-        .eq("thread_id", id),
-      supabase
-        .from("thread_reactions")
-        .select("thread_id,user_id,type")
-        .eq("thread_id", id),
-    ]);
+        .in("parent_id", topLevelIds)
+        .order("created_at", { ascending: true });
 
-    if (replyError) {
-      console.error("Failed to load replies:", replyError);
-      Alert.alert("Error", "Failed to refresh comments.");
+      if (childError) {
+        console.error("Failed to load reply children:", childError);
+        Alert.alert("Error", "Failed to refresh comments.");
+        if (!reset) {
+          setLoadingMoreReplies(false);
+        }
+        return;
+      }
+
+      childReplies = childData || [];
     }
-    if (threadReactionError) {
-      console.error("Failed to load thread reactions:", threadReactionError);
-      Alert.alert("Error", "Failed to refresh reactions.");
-    }
 
-    const safeReplies = replyError ? [] : replyData || [];
-    const replyIds = safeReplies.map((r) => r.id);
-    let reactionData = [];
+    const loadedReplies = [...topLevelReplies, ...childReplies];
+    const loadedReplyIds = loadedReplies.map((item) => item.id);
+    let replyReactionData = [];
 
-    if (replyIds.length > 0) {
+    if (loadedReplyIds.length > 0) {
       const { data, error: replyReactionError } = await supabase
         .from("reply_reactions")
         .select("reply_id,user_id,type")
-        .in("reply_id", replyIds);
+        .in("reply_id", loadedReplyIds);
 
       if (replyReactionError) {
         console.error("Failed to load reply reactions:", replyReactionError);
         Alert.alert("Error", "Failed to refresh reactions.");
-      } else {
-        reactionData = data || [];
+        if (!reset) {
+          setLoadingMoreReplies(false);
+        }
+        return;
       }
+
+      replyReactionData = data || [];
     }
 
-    setReplies(safeReplies);
-    setReactions(reactionData);
-    setThreadReactions(threadReactionError ? [] : threadReactionData || []);
+    if (reset) {
+      setReplies(loadedReplies);
+      setReactions(replyReactionData);
+    } else {
+      setReplies((prev) => mergeUniqueReplies(prev, loadedReplies));
+      setReactions((prev) =>
+        mergeUniqueReplyReactions(prev, replyReactionData)
+      );
+    }
+
+    setTopLevelReplyOffset(nextOffset + topLevelReplies.length);
+    setHasMoreReplies(topLevelReplies.length === REPLIES_PAGE_SIZE);
+
+    if (!reset) {
+      setLoadingMoreReplies(false);
+    }
+  };
+
+  const loadData = async ({ resetReplies = true } = {}) => {
+    await Promise.all([
+      loadRepliesPage({ reset: resetReplies }),
+      loadThreadReactions(),
+    ]);
   };
 
   useEffect(() => {
@@ -201,7 +315,7 @@ export default function Thread() {
     const load = async () => {
       setLoading(true);
       await loadThread();
-      await loadData();
+      await loadData({ resetReplies: true });
       setLoading(false);
     };
 
@@ -212,7 +326,7 @@ export default function Thread() {
     try {
       setRefreshing(true);
       await loadThread();
-      await loadData();
+      await loadData({ resetReplies: true });
     } finally {
       setRefreshing(false);
     }
@@ -290,29 +404,49 @@ export default function Thread() {
     }
 
     const current = getUserThreadReaction();
+    const previousReactions = threadReactions;
 
-    if (current === type) {
-      // Remove reaction
-      await supabase
+    setThreadReactions((prev) => {
+      const withoutCurrent = prev.filter(
+        (r) => !(r.thread_id === id && r.user_id === userId)
+      );
+
+      if (current === type) return withoutCurrent;
+      return [...withoutCurrent, { thread_id: id, user_id: userId, type }];
+    });
+
+    try {
+      if (current === type) {
+        const { error } = await supabase
+          .from("thread_reactions")
+          .delete()
+          .eq("thread_id", id)
+          .eq("user_id", userId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("thread_reactions")
+          .upsert({ thread_id: id, user_id: userId, type });
+        if (error) throw error;
+        if (type === "like") animateThreadLike();
+      }
+
+      const { data: threadReactionData, error: refreshError } = await supabase
         .from("thread_reactions")
-        .delete()
-        .eq("thread_id", id)
-        .eq("user_id", userId);
-    } else {
-      // Add or change reaction
-      await supabase
-        .from("thread_reactions")
-        .upsert({ thread_id: id, user_id: userId, type });
-      if (type === "like") animateThreadLike();
+        .select("thread_id,user_id,type")
+        .eq("thread_id", id);
+
+      if (refreshError) throw refreshError;
+
+      setThreadReactions(threadReactionData || []);
+    } catch (err) {
+      setThreadReactions(previousReactions);
+      console.error("Thread reaction failed:", err);
+      Alert.alert(
+        "Reaction failed",
+        "We couldn't save your reaction. Please try again."
+      );
     }
-
-    // Refresh reactions
-    const { data: threadReactionData } = await supabase
-      .from("thread_reactions")
-      .select("thread_id,user_id,type")
-      .eq("thread_id", id);
-    
-    setThreadReactions(threadReactionData || []);
   };
 
   /* ---------------- ACTIONS ---------------- */
@@ -329,7 +463,8 @@ export default function Thread() {
     setReplyingToItem(item);
     // Always add username tag when replying to a reply (nested comment)
     if (isReply) {
-      setReplyText(`@${item.profiles.username} `);
+      const username = item.profiles?.username;
+      setReplyText(username ? `@${username} ` : "");
     } else {
       setReplyText("");
     }
@@ -378,7 +513,12 @@ export default function Thread() {
       }
     } catch (err) {
       setReactions(previous);
-      await loadData();
+      console.error("Reply reaction failed:", err);
+      await loadData({ resetReplies: true });
+      Alert.alert(
+        "Reaction failed",
+        "We couldn't save your reaction. Please try again."
+      );
     }
   };
 
@@ -407,7 +547,7 @@ export default function Thread() {
       setReplyingTo(null);
       setReplyingToItem(null);
       Keyboard.dismiss();
-      loadData();
+      await loadData({ resetReplies: true });
     } catch (err) {
       Alert.alert("Error", "Failed to send reply");
     } finally {
@@ -449,12 +589,18 @@ export default function Thread() {
 
   /* ---------------- COMMENT MODERATION ---------------- */
   const handleReportComment = async (commentId) => {
-    // COMMENT REPORTING (notes fallback)
+    if (!userId) {
+      Alert.alert("Login required", "Please log in to report this comment.");
+      setMenuComment(null);
+      return;
+    }
+
     const { error } = await supabase.from("moderation_reports").insert({
       thread_id: id,
       reporter_id: userId,
+      reply_id: commentId,
       reason: "Inappropriate content",
-      notes: `Reported reply_id=${commentId}`,
+      notes: null,
     });
 
     if (error) {
@@ -486,7 +632,7 @@ export default function Thread() {
               Alert.alert("Failed to delete");
               console.error(error);
             } else {
-              loadData();
+              loadData({ resetReplies: true });
             }
 
             setMenuComment(null);
@@ -934,6 +1080,29 @@ export default function Thread() {
               )}
             </>
           }
+          ListFooterComponent={
+            hasMoreReplies ? (
+              <TouchableOpacity
+                style={[
+                  styles.loadMoreButton,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.uiBackground,
+                  },
+                ]}
+                onPress={() => loadRepliesPage()}
+                disabled={loadingMoreReplies}
+              >
+                {loadingMoreReplies ? (
+                  <ActivityIndicator color={Colors.primary} />
+                ) : (
+                  <ThemedText style={styles.loadMoreText}>
+                    Load more replies
+                  </ThemedText>
+                )}
+              </TouchableOpacity>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.noCommentsContainer}>
               <Ionicons name="chatbubble-outline" size={48} color={theme.iconMuted} />
@@ -1317,6 +1486,21 @@ const styles = StyleSheet.create({
   noCommentsSubtext: {
     fontSize: 14,
     marginTop: 8,
+  },
+  loadMoreButton: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.primary,
   },
   dropdownOverlay: {
     flex: 1,

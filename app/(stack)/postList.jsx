@@ -1,90 +1,50 @@
-import React, { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabase"; // adjust path if needed
-import { View, Text, TouchableOpacity, Alert, ScrollView } from "react-native";
-import useAdminStatus from "../../hooks/useAdminStatus";
+import { View, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import ThemedText from "../../components/ThemedText";
+import ThemedView from "../../components/ThemedView";
 import { useTheme } from "../../contexts/ThemeContext";
 
 export default function PostList() {
-  const [posts, setPosts] = useState([]);
-  const { isAdmin } = useAdminStatus();
   const { theme } = useTheme();
 
-  // Fetch posts
-  useEffect(() => {
-    fetchPosts();
-  }, []);
-
-  // Get posts from Supabase
-  async function fetchPosts() {
-    const { data, error } = await supabase.from("posts").select("*").order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error fetching posts:", error);
-    } else {
-      setPosts(data);
-    }
-  }
-
-  // Check if user is admin
-  // Delete post (admin only)
-  async function deletePost(id) {
-    Alert.alert("Confirm Delete", "Are you sure you want to delete this post?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          const { error } = await supabase.from("posts").delete().eq("id", id);
-
-          if (error) {
-            Alert.alert("Error", "Failed to delete post.");
-            console.error("Delete error:", error);
-          } else {
-            Alert.alert("Deleted", "Post removed successfully.");
-            fetchPosts(); // refresh list
-          }
-        },
-      },
-    ]);
-  }
-
   return (
-    <ScrollView style={{ padding: 20, backgroundColor: theme.background }}>
-      {posts.length === 0 ? (
-        <Text style={{ color: theme.textMuted }}>No posts available.</Text>
-      ) : (
-        posts.map((post) => (
-          <View
-            key={post.id}
-            style={{
-              backgroundColor: theme.surface,
-              padding: 15,
-              marginBottom: 10,
-              borderRadius: 10,
-              shadowColor: theme.shadow,
-              shadowOpacity: 0.1,
-              shadowRadius: 5,
-            }}
-          >
-            <Text style={{ fontSize: 16, fontWeight: "bold", color: theme.title }}>{post.title}</Text>
-            <Text style={{ marginTop: 5, color: theme.text }}>{post.content}</Text>
-
-            {isAdmin && (
-              <TouchableOpacity
-                onPress={() => deletePost(post.id)}
-                style={{
-                  backgroundColor: theme.danger,
-                  marginTop: 10,
-                  padding: 8,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: "#fff", textAlign: "center" }}>Delete</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ))
-      )}
-    </ScrollView>
+    <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
+      <View style={[styles.card, { backgroundColor: theme.surface }]}>
+        <Ionicons name="warning-outline" size={28} color={theme.iconMuted} />
+        <ThemedText style={[styles.title, { color: theme.title }]}>
+          Legacy post admin screen retired
+        </ThemedText>
+        <ThemedText style={[styles.body, { color: theme.textMuted }]}>
+          This route is disabled because it depends on the old `posts` table and is no longer part of the active forum flow.
+        </ThemedText>
+      </View>
+    </ThemedView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 18,
+    padding: 20,
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginTop: 10,
+    textAlign: "center",
+  },
+  body: {
+    marginTop: 8,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+});

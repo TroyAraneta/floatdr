@@ -24,6 +24,7 @@ const ManageAdmins = () => {
   const { theme } = useTheme();
   const { isHeadAdmin, loading: adminLoading, refetch } = useAdminStatus();
 
+  const [currentUserId, setCurrentUserId] = useState(null);
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -72,6 +73,12 @@ const ManageAdmins = () => {
   }, []);
 
   useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data?.user?.id || null);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!isHeadAdmin) {
       setLoading(false);
       return;
@@ -102,14 +109,15 @@ const ManageAdmins = () => {
       try {
         setBusy(userId, true);
         const { error } = await supabase.rpc("set_admin_role", {
-          target_user: targetUserId, 
-          new_role: newRole,         
+          target_user_id: userId,
+          new_role: newRole,
         });
         if (error) throw error;
 
         await loadAdmins();
         await runSearch(search);
-        refetch();
+        await refetch();
+        Alert.alert("Success", "Admin role updated.");
       } catch (err) {
         Alert.alert("Error", err?.message || "Failed to update role.");
       } finally {
@@ -136,6 +144,8 @@ const ManageAdmins = () => {
   const roleLabel = useCallback((role) => {
     if (role === "head_admin") return "Head Admin";
     if (role === "admin") return "Admin";
+    if (role === "user") return "User";
+    if (!role) return "Role Missing";
     return "User";
   }, []);
 
@@ -143,19 +153,16 @@ const ManageAdmins = () => {
     ({ role }) => {
       const label = roleLabel(role);
 
-      const pillStyle =
-        role === "head_admin"
-          ? { backgroundColor: theme.uiBackground }
-          : role === "admin"
-          ? { backgroundColor: theme.uiBackground }
-          : { backgroundColor: theme.uiBackground };
+      const pillStyle = { backgroundColor: theme.uiBackground };
 
       const textStyle =
         role === "head_admin"
           ? { color: theme.text }
           : role === "admin"
           ? { color: theme.icon }
-          : { color: theme.textMuted };
+          : role === "user"
+          ? { color: theme.textMuted }
+          : { color: theme.warning };
 
       return (
         <View style={[styles.rolePill, pillStyle]}>
@@ -171,8 +178,24 @@ const ManageAdmins = () => {
   const ActionRow = useCallback(
     ({ userId, role }) => {
       const isBusy = !!busyIds[userId];
+      const isSelf = !!currentUserId && userId === currentUserId;
+      const normalizedRole =
+        role === "head_admin" || role === "admin" || role === "user"
+          ? role
+          : null;
 
-      if (role === "head_admin") {
+      if (isSelf) {
+        return (
+          <View style={[styles.protectedWrap, { backgroundColor: theme.uiBackground }]}>
+            <Ionicons name="lock-closed" size={14} color={theme.iconMuted} />
+            <ThemedText style={[styles.protectedText, { color: theme.textMuted }]}>
+              Current Account
+            </ThemedText>
+          </View>
+        );
+      }
+
+      if (normalizedRole === "head_admin") {
         return (
           <View style={[styles.protectedWrap, { backgroundColor: theme.uiBackground }]}>
             <Ionicons name="lock-closed" size={14} color={theme.iconMuted} />
@@ -183,11 +206,19 @@ const ManageAdmins = () => {
         );
       }
 
-      // Compact, predictable actions:
-      // - User -> Promote to Admin
-      // - Admin -> Demote to User + (secondary) Make Head Admin
-      const isUser = role === "user" || !role;
-      const isAdmin = role === "admin";
+      if (!normalizedRole) {
+        return (
+          <View style={[styles.protectedWrap, { backgroundColor: theme.uiBackground }]}>
+            <Ionicons name="alert-circle-outline" size={14} color={theme.warning} />
+            <ThemedText style={[styles.protectedText, { color: theme.warning }]}>
+              Data Issue
+            </ThemedText>
+          </View>
+        );
+      }
+
+      const isUser = normalizedRole === "user";
+      const isAdmin = normalizedRole === "admin";
 
       return (
         <View style={styles.actionsCol}>
@@ -241,12 +272,12 @@ const ManageAdmins = () => {
         </View>
       );
     },
-    [busyIds, confirmRoleChange, theme]
+    [busyIds, confirmRoleChange, currentUserId, theme]
   );
 
   const renderPersonCard = useCallback(
     ({ item, variant }) => {
-      const role = item.admin_role || "user";
+      const role = item.admin_role ?? null;
 
       return (
         <ThemedCard style={[styles.personCard, { backgroundColor: theme.surface }]}>
@@ -274,6 +305,11 @@ const ManageAdmins = () => {
                 {variant === "search" && (
                   <ThemedText muted style={{ color: theme.textMuted }}>
                     From search
+                  </ThemedText>
+                )}
+                {!role && (
+                  <ThemedText muted style={{ color: theme.warning }}>
+                    Profile role needs repair
                   </ThemedText>
                 )}
               </View>
@@ -377,7 +413,7 @@ const ManageAdmins = () => {
               <ThemedTextInput
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Search by username…"
+                placeholder="Search by username..."
                 autoCapitalize="none"
                 style={styles.searchInput}
                 returnKeyType="search"
@@ -420,7 +456,7 @@ const ManageAdmins = () => {
                   <View style={styles.inlineLoadingRow}>
                     <ActivityIndicator size="small" color={theme.icon} />
                     <ThemedText muted style={{ color: theme.textMuted }}>
-                      Searching…
+                      Searching...
                     </ThemedText>
                   </View>
                 </>

@@ -72,11 +72,15 @@ const Settings = () => {
         setNotifications(data.push_notifications);
         setEmailNotifications(data.email_notifications);
       } else if (error?.code === "PGRST116") {
-        // no row found; we'll create below
-      } else {
-        await supabase.from("user_settings").insert({
+        const { error: insertError } = await supabase.from("user_settings").insert({
           user_id: uid,
         });
+
+        if (insertError) {
+          Alert.alert("Error", "Failed to initialize settings.");
+        }
+      } else {
+        Alert.alert("Error", "Failed to load settings.");
       }
     };
 
@@ -271,9 +275,12 @@ const Settings = () => {
           rightAccessory={
             <Switch
               value={emailNotifications}
-              onValueChange={(value) => {
+              onValueChange={async (value) => {
                 setEmailNotifications(value);
-                updateSetting("email_notifications", value);
+                const success = await updateSetting("email_notifications", value);
+                if (!success) {
+                  setEmailNotifications(!value);
+                }
               }}
               {...getSwitchColors(emailNotifications)}
             />

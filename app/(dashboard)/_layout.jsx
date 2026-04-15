@@ -1,4 +1,4 @@
-import { Tabs, usePathname, Redirect } from "expo-router";
+import { Tabs, usePathname } from "expo-router";
 import { StyleSheet, StatusBar } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -17,12 +17,11 @@ export default function DashboardLayout() {
   }
 
   if (!user) {
-    return <Redirect href="/(auth)/login" />;
+    return null;
   }
 
-  // Hide header for certain screens
-  const hideHeader =
-    pathname.includes("Menu") || pathname.includes("thread/");
+  const rootTabPaths = ["/home", "/forum", "/library", "/schedule", "/menu"];
+  const hideHeader = !rootTabPaths.includes(pathname);
 
   return (
     <>

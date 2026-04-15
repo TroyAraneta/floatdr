@@ -55,6 +55,14 @@ export default function StackLayout() {
         }}
       />
       <Stack.Screen
+        name="manageReports"
+        options={{
+          title: "Manage Reports",
+          headerShown: true,
+          animation: "slide_from_right",
+        }}
+      />
+      <Stack.Screen
         name="manageAdmins"
         options={{
           title: "Manage Admins",

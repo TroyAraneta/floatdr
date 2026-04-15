@@ -1,3 +1,20 @@
+-- =========================================================
+-- RLS Policy Reference (Forum Threads & Storage)
+-- =========================================================
+-- 
+-- This file contains reference RLS policies used during MVP development.
+-- 
+-- These policies MAY or MAY NOT fully reflect the current state of the
+-- Supabase database and should NOT be blindly re-applied.
+--
+-- Purpose:
+-- - Document intended access control logic
+-- - Provide reference for future migrations
+-- - Assist incoming developers in understanding security model
+--
+-- Always verify against the live Supabase project before applying.
+-- =========================================================
+
 -- RLS policy snippet for EditThread owner-edit/admin-delete flow.
 -- Review and run manually in your DB migration workflow.
 

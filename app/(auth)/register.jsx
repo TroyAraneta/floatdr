@@ -18,6 +18,7 @@ import AuthLayout from "../../components/AuthLayout";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
 import ThemedTextInput from "../../components/ThemedTextInput";
+import TermsModal from "../../components/TermsModal";
 import { useTheme } from "../../contexts/ThemeContext";
 
 /* ---------- helpers ---------- */
@@ -27,7 +28,7 @@ const getPasswordStrength = (password) => {
   if (password.length >= 8) score++;
   if (/[A-Za-z]/.test(password)) score++;
   if (/\d/.test(password)) score++;
-  return score; // 0–3
+  return score; // 0-3
 };
 
 const strengthLabel = ["Too weak", "Weak", "Good", "Strong"];
@@ -48,7 +49,7 @@ export default function Register() {
   // Existing: used for server errors (e.g. email already registered)
   const [errorMsg, setErrorMsg] = useState("");
 
-  // NEW: track field interaction (so we don’t show errors too early)
+  // NEW: track field interaction (so we don't show errors too early)
   const [touched, setTouched] = useState({
     email: false,
     password: false,
@@ -57,6 +58,12 @@ export default function Register() {
 
   // NEW: reveals all errors after user taps submit
   const [submitAttempted, setSubmitAttempted] = useState(false);
+
+  // Terms: controls modal visibility and acceptance state
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  // Show a terms error only after a submit attempt
+  const [termsError, setTermsError] = useState(false);
 
   const strength = useMemo(() => getPasswordStrength(password), [password]);
 
@@ -99,13 +106,19 @@ export default function Register() {
   // NEW: should we show an error for a specific field?
   const shouldShowFieldError = (key) => touched[key] || submitAttempted;
 
-    const handleSubmit = async () => {
+  const handleSubmit = async () => {
     if (submitLockRef.current) return;
     if (loading) return;
 
     setSubmitAttempted(true);
     setErrorMsg("");
     setTouched({ email: true, password: true, confirm: true });
+
+    // Guard: terms must be accepted before we even check field errors
+    if (!termsAccepted) {
+      setTermsError(true);
+      return;
+    }
 
     const hasAnyClientError = Object.values(fieldErrors).some(Boolean);
     if (hasAnyClientError) return;
@@ -148,6 +161,12 @@ export default function Register() {
     }
   };
 
+  // Toggles terms acceptance; clears the error as soon as the user checks the box
+  const handleToggleTerms = () => {
+    const next = !termsAccepted;
+    setTermsAccepted(next);
+    if (next) setTermsError(false);
+  };
 
   return (
     <KeyboardAvoidingView
@@ -356,6 +375,60 @@ export default function Register() {
                 </View>
               )}
 
+              {/* Terms & Conditions acceptance row */}
+              <View style={styles.termsRow}>
+                {/* Checkbox */}
+                <Pressable
+                  onPress={handleToggleTerms}
+                  hitSlop={8}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel="Accept Terms and Conditions"
+                  accessibilityState={{ checked: termsAccepted }}
+                  style={[
+                    styles.checkbox,
+                    {
+                      borderColor: termsError ? theme.danger : theme.iconMuted,
+                      backgroundColor: termsAccepted
+                        ? theme.primary
+                        : "transparent",
+                    },
+                  ]}
+                >
+                  {termsAccepted && (
+                    <Ionicons name="checkmark" size={13} color="#fff" />
+                  )}
+                </Pressable>
+
+                {/* Label with tappable "Terms & Conditions" link */}
+                <View style={styles.termsLabelRow}>
+                  <ThemedText muted style={styles.termsText}>
+                    I agree to the{" "}
+                  </ThemedText>
+                  <Pressable
+                    onPress={() => setTermsModalVisible(true)}
+                    hitSlop={4}
+                    accessibilityRole="link"
+                    accessibilityLabel="Read Terms and Conditions"
+                  >
+                    <ThemedText
+                      style={[styles.termsLink, { color: theme.primary }]}
+                    >
+                      Terms & Conditions
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Terms error - only shown after a submit attempt */}
+              {termsError && (
+                <ThemedText
+                  style={[styles.fieldError, styles.termsFieldError, { color: theme.danger }]}
+                  accessibilityLiveRegion="polite"
+                >
+                  You must accept the Terms & Conditions to continue.
+                </ThemedText>
+              )}
+
               {/* Existing: server error (e.g. email already registered) */}
               {!!errorMsg && (
                 <ThemedText
@@ -379,7 +452,7 @@ export default function Register() {
                 accessibilityLabel="Create account"
               >
                 <ThemedText style={styles.primaryButtonText}>
-                  {loading ? "Creating account…" : "Create account"}
+                  {loading ? "Creating account..." : "Create account"}
                 </ThemedText>
               </ThemedButton>
             </View>
@@ -398,6 +471,13 @@ export default function Register() {
           </ScrollView>
         </AuthLayout>
       </TouchableWithoutFeedback>
+
+      {/* Terms Modal - rendered outside ScrollView/KeyboardAvoidingView so it
+          overlays the full screen correctly on both platforms */}
+      <TermsModal
+        visible={termsModalVisible}
+        onClose={() => setTermsModalVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -497,6 +577,46 @@ const styles = StyleSheet.create({
   // Existing: server error styling
   errorText: {
     fontSize: 13,
+    marginBottom: 12,
+  },
+
+  // Terms row: checkbox + label sit side by side
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  termsLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    flex: 1,
+  },
+
+  termsText: {
+    fontSize: 13,
+  },
+
+  termsLink: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  // Slight top offset override so it sits flush below the terms row
+  termsFieldError: {
+    marginTop: 0,
     marginBottom: 12,
   },
 

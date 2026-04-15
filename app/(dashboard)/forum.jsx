@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { supabase } from "../../lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import ThemedTextInput from "../../components/ThemedTextInput";
@@ -24,11 +24,13 @@ import ThemedCard from "../../components/ThemedCard";
 import ThemedButton from "../../components/ThemedButton";
 import SubscriptionModal from "../../components/SubscriptionModal";
 import { Colors } from "../../constants/colors";
+import { useMembership } from "../../contexts/MembershipContext";
 import { useTheme } from "../../contexts/ThemeContext";
-import useMembershipStatus from "../../hooks/useMembershipStatus";
 
 export default function Forum() {
+  const REQUEST_TIMEOUT_MS = 30000;
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -54,7 +56,7 @@ export default function Forum() {
   const loadingMoreRef = useRef(false);
   const reqIdRef = useRef(0);
 
-  const withTimeout = (promise, ms = 12000) => {
+  const withTimeout = (promise, ms = REQUEST_TIMEOUT_MS) => {
     return Promise.race([
       promise,
       new Promise((_, reject) =>
@@ -67,7 +69,7 @@ export default function Forum() {
     return msg.includes("permission denied") || msg.includes("rls");
   };
 
-  const { isMember, loading: membershipLoading } = useMembershipStatus();
+  const { isMember, loading: membershipLoading } = useMembership();
 
   // PAGINATION
   const PAGE_SIZE = 15;
@@ -75,11 +77,24 @@ export default function Forum() {
   const [hasMore, setHasMore] = useState(true);
   const [cursor, setCursor] = useState(null);
 
-  const categories = [
-    { name: "Mind", slug: "mind" },
-    { name: "Body", slug: "body" },
-    { name: "Spirit", slug: "spirit" },
-  ];
+  const categories = useMemo(
+    () => [
+      { name: "Mind", slug: "mind" },
+      { name: "Body", slug: "body" },
+      { name: "Spirit", slug: "spirit" },
+    ],
+    []
+  );
+  const requestedSlug = (
+    Array.isArray(params.slug) ? params.slug[0] : params.slug || ""
+  )
+    .toString()
+    .trim()
+    .toLowerCase();
+  const matchedCategory = useMemo(
+    () => categories.find((item) => item.slug === requestedSlug) || categories[0],
+    [categories, requestedSlug]
+  );
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -87,7 +102,11 @@ export default function Forum() {
     });
   }, []);
 
-  const [selectedCategory, setSelectedCategory] = useState(categories[0]);
+  const [selectedCategory, setSelectedCategory] = useState(matchedCategory);
+
+  useEffect(() => {
+    setSelectedCategory(matchedCategory);
+  }, [matchedCategory]);
 
   // Dynamic FAB placement:
   // Prefer actual tab-bar height and fallback when unavailable in context.
@@ -208,13 +227,20 @@ export default function Forum() {
       }).start();
 
       const threadIds = formatted.map((t) => t.id);
-      const reactions = await withTimeout(
-        fetchReactionsForThreadIds(threadIds),
-        12000
-      );
+      if (myReqId === reqIdRef.current) {
+        setLoading(false);
+      }
 
-      if (myReqId !== reqIdRef.current) return;
-      setThreadReactions(reactions);
+      fetchReactionsForThreadIds(threadIds)
+        .then((reactions) => {
+          if (myReqId === reqIdRef.current) {
+            setThreadReactions(reactions);
+          }
+        })
+        .catch((reactionError) => {
+          console.error("Failed to load thread reactions:", reactionError);
+        });
+      return;
     } catch (err) {
       console.error(err);
       if (isPermissionDenied(err)) {
@@ -228,7 +254,9 @@ export default function Forum() {
           : "Please check your connection and try again."
       );
     } finally {
-      if (myReqId === reqIdRef.current) setLoading(false);
+      if (myReqId === reqIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [selectedCategory, listAnim, formatThreadsFromRpc, fetchReactionsForThreadIds]);
 
@@ -483,6 +511,7 @@ export default function Forum() {
     }
 
     const current = reactionMap[threadId]?.userReaction;
+    const previousReactions = threadReactions;
 
     setThreadReactions((prev) => {
       let updated = [...prev];
@@ -504,20 +533,27 @@ export default function Forum() {
 
     try {
       if (current === type) {
-        await supabase
+        const { error } = await supabase
           .from("thread_reactions")
           .delete()
           .eq("thread_id", threadId)
           .eq("user_id", userId);
+        if (error) throw error;
       } else {
-        await supabase
+        const { error } = await supabase
           .from("thread_reactions")
           .upsert({ thread_id: threadId, user_id: userId, type });
+        if (error) throw error;
 
         if (type === "like") animateLike(threadId);
       }
     } catch (error) {
+      setThreadReactions(previousReactions);
       console.error(error);
+      Alert.alert(
+        "Reaction failed",
+        "We couldn't save your reaction. Please try again."
+      );
     }
   };
 

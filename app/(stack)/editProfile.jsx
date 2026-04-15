@@ -10,7 +10,6 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
-  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -29,6 +28,8 @@ import { useTheme } from "../../contexts/ThemeContext";
 
 const FALLBACK_AVATAR =
   "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+const MAX_USERNAME = 30;
+const MAX_BIO = 160;
 
 const EditProfile = () => {
   const router = useRouter();
@@ -82,82 +83,30 @@ const EditProfile = () => {
     uploadAvatar(croppedAvatarUri);
   }, [params.croppedAvatarUri]);
 
-  const ensureMediaPermission = async () => {
-    try {
-      const before = await ImagePicker.getMediaLibraryPermissionsAsync();
-
-      if (before.granted) {
-        return true;
-      }
-
-      const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (requested.granted) {
-        return true;
-      }
-
-      Alert.alert(
-        "Permission Debug",
-        JSON.stringify(
-          {
-            stage: "media-library-permission",
-            before: {
-              granted: before.granted,
-              status: before.status,
-              canAskAgain: before.canAskAgain,
-              expires: before.expires,
-              accessPrivileges: before.accessPrivileges,
-            },
-            requested: {
-              granted: requested.granted,
-              status: requested.status,
-              canAskAgain: requested.canAskAgain,
-              expires: requested.expires,
-              accessPrivileges: requested.accessPrivileges,
-            },
-          },
-          null,
-          2
-        )
-      );
-
-      return false;
-    } catch (error) {
-      Alert.alert(
-        "Permission Debug Error",
-        JSON.stringify(
-          {
-            stage: "permission-check-catch",
-            message: error?.message || "Unknown permission error",
-            name: error?.name || null,
-          },
-          null,
-          2
-        )
-      );
-      return false;
-    }
+  const handleBack = () => {
+    router.replace("/(dashboard)/menu");
   };
 
   const handleChooseImage = async () => {
-    const hasPermission = await ensureMediaPermission();
-    if (!hasPermission) return;
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.9,
-    });
-
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      router.push({
-        pathname: "/(stack)/avatarCrop",
-        params: {
-          imageUri: result.assets[0].uri,
-          returnTo: "/(stack)/editProfile",
-          origin: "editProfile",
-        },
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.9,
       });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        router.push({
+          pathname: "/(stack)/avatarCrop",
+          params: {
+            imageUri: result.assets[0].uri,
+            returnTo: "/(stack)/editProfile",
+            origin: "editProfile",
+          },
+        });
+      }
+    } catch (error) {
+      Alert.alert("Error", "Unable to open image picker.");
     }
   };
 
@@ -170,8 +119,6 @@ const EditProfile = () => {
         error: userError,
       } = await supabase.auth.getUser();
 
-      console.log("EDIT PROFILE USER:", JSON.stringify({ userId: user?.id, userError }, null, 2));
-
       if (userError || !user) throw new Error("Not logged in.");
 
       const cleanUri = uri.split("?")[0];
@@ -181,54 +128,31 @@ const EditProfile = () => {
       const fileName = `${user.id}/avatar.${storedExt}`;
       const mimeType = `image/${normalizedExt}`;
 
-      console.log("EDIT PROFILE FILE INFO:", JSON.stringify({
-        cleanUri,
-        rawExt,
-        normalizedExt,
-        storedExt,
-        fileName,
-        mimeType,
-      }, null, 2));
-
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      console.log("EDIT PROFILE BASE64 LENGTH:", base64?.length || 0);
-
       const binary = Buffer.from(base64, "base64");
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(fileName, binary, {
           contentType: mimeType,
           upsert: true,
         });
 
-      console.log("EDIT PROFILE STORAGE RESULT:", JSON.stringify({
-        uploadData,
-        uploadError,
-      }, null, 2));
-
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from("avatars").getPublicUrl(fileName);
       const publicUrl = data?.publicUrl;
 
-      console.log("EDIT PROFILE PUBLIC URL:", publicUrl);
-
       if (!publicUrl) throw new Error("Failed to get public URL.");
 
-      const { data: profileUpdateData, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from("profiles")
         .update({ avatar_url: publicUrl })
         .eq("id", user.id)
         .select();
-
-      console.log("EDIT PROFILE DB UPDATE RESULT:", JSON.stringify({
-        profileUpdateData,
-        updateError,
-      }, null, 2));
 
       if (updateError) throw updateError;
 
@@ -236,7 +160,7 @@ const EditProfile = () => {
       router.setParams({ croppedAvatarUri: undefined, t: undefined });
       Alert.alert("Success", "Profile picture updated!");
     } catch (error) {
-      console.error("EDIT PROFILE FINAL ERROR:", JSON.stringify(error, null, 2));
+      console.error("Edit profile upload failed:", error);
       Alert.alert("Upload Failed", error?.message || "Unable to upload avatar.");
     } finally {
       setUploading(false);
@@ -244,6 +168,19 @@ const EditProfile = () => {
   };
 
   const handleSave = async () => {
+    const nextUsername = username.trim();
+    const nextBio = bio.trim();
+
+    if (nextUsername.length > MAX_USERNAME) {
+      Alert.alert("Username too long", `Username must be ${MAX_USERNAME} characters or less.`);
+      return;
+    }
+
+    if (nextBio.length > MAX_BIO) {
+      Alert.alert("Bio too long", `Bio must be ${MAX_BIO} characters or less.`);
+      return;
+    }
+
     setLoading(true);
 
     const {
@@ -259,8 +196,8 @@ const EditProfile = () => {
     const { error } = await supabase
       .from("profiles")
       .update({
-        username: username.trim(),
-        bio: bio.trim(),
+        username: nextUsername,
+        bio: nextBio,
         avatar_url: avatarUrl,
         updated_at: new Date().toISOString(),
       })
@@ -295,34 +232,33 @@ const EditProfile = () => {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ThemedView style={{ flex: 1, backgroundColor: theme.background }}>
+        <View style={styles.headerRow}>
+          <Pressable
+            onPress={handleBack}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            accessibilityHint="Returns to the previous screen"
+            style={[
+              styles.backButton,
+              { backgroundColor: theme.surface },
+            ]}
+          >
+            <Ionicons name="arrow-back" size={18} color={theme.iconMuted} />
+          </Pressable>
+
+          <ThemedText title style={[styles.headerTitle, { color: theme.icon }]}>
+            Edit Profile
+          </ThemedText>
+
+          <View style={styles.headerRightSpacer} />
+        </View>
+
         <ScrollView
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.header}>
-            <Pressable
-              onPress={() => router.replace("/(dashboard)/menu")}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              style={[styles.headerBtn, { backgroundColor: theme.surface }]}
-            >
-              <Ionicons name="arrow-back" size={18} color={theme.iconMuted} />
-            </Pressable>
-
-            <ThemedText
-              title
-              style={[styles.headerTitle, { color: theme.title }]}
-            >
-              Edit Profile
-            </ThemedText>
-
-            <View style={{ width: 40 }} />
-          </View>
-
-          <Spacer height={10} />
-
           <ThemedCard
             style={[
               styles.avatarCard,
@@ -399,7 +335,7 @@ const EditProfile = () => {
                       muted
                       style={{ marginLeft: 8, color: theme.textMuted }}
                     >
-                      Uploading photo…
+                      Uploading photo...
                     </ThemedText>
                   </View>
                 )}
@@ -437,6 +373,7 @@ const EditProfile = () => {
               autoCorrect={false}
               accessibilityLabel="Username"
               returnKeyType="next"
+              maxLength={MAX_USERNAME}
             />
 
             <View style={styles.counterRow}>
@@ -470,6 +407,7 @@ const EditProfile = () => {
               ]}
               accessibilityLabel="Bio"
               textAlignVertical="top"
+              maxLength={MAX_BIO}
             />
 
             <View style={styles.counterRow}>
@@ -495,7 +433,7 @@ const EditProfile = () => {
               accessibilityLabel="Save profile changes"
             >
               <ThemedText style={styles.saveText}>
-                {uploading ? "Please wait…" : "Save Changes"}
+                {uploading ? "Please wait..." : "Save Changes"}
               </ThemedText>
             </ThemedButton>
           </ThemedCard>
@@ -514,57 +452,30 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 60,
   },
-
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 6,
-  },
-
-  headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    letterSpacing: -0.3,
-  },
-
   avatarCard: {
     borderRadius: 18,
     padding: 14,
   },
-
   avatarRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
   },
-
   avatarWrap: {
     width: 92,
     alignItems: "center",
     justifyContent: "center",
   },
-
   avatar: {
     width: 84,
     height: 84,
     borderRadius: 42,
   },
-
   cameraChip: {
     position: "absolute",
     right: 6,
@@ -576,18 +487,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-
   avatarTitle: {
     fontSize: 15,
     fontWeight: "900",
   },
-
   avatarActions: {
     flexDirection: "row",
     gap: 10,
     marginTop: 12,
   },
-
   avatarActionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -599,47 +507,39 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flex: 1,
   },
-
   avatarActionBtnSingle: {
     flex: 0,
     alignSelf: "flex-start",
     minWidth: 150,
   },
-
   avatarActionText: {
     fontWeight: "800",
     fontSize: 13,
   },
-
   uploadingRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 10,
   },
-
   formCard: {
     borderRadius: 18,
     padding: 14,
   },
-
   sectionLabel: {
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.6,
   },
-
   label: {
     fontSize: 14,
     fontWeight: "900",
   },
-
   helper: {
     fontSize: 12,
     marginTop: 4,
     marginBottom: 10,
     lineHeight: 16,
   },
-
   input: {
     borderRadius: 14,
     borderWidth: 1,
@@ -647,24 +547,44 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
-
   bioInput: {
     minHeight: 110,
   },
-
   counterRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 8,
   },
-
   saveButton: {
     borderRadius: 14,
   },
-
   saveText: {
     color: "#fff",
     fontWeight: "900",
     fontSize: 15,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 24,
+    fontWeight: "700",
+    textAlign: "left",
+  },
+  headerRightSpacer: {
+    width: 40,
+    height: 40,
   },
 });

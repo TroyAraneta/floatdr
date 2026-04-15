@@ -11,9 +11,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import ThemedText from "./ThemedText";
-import useMembershipStatus from "../hooks/useMembershipStatus";
+import { useMembership } from "../contexts/MembershipContext";
 import { useTheme } from "../contexts/ThemeContext";
-import { presentRevenueCatPaywall } from "../lib/revenuecat";
+import {
+  presentRevenueCatPaywall,
+  restoreRevenueCatPurchases,
+} from "../lib/revenuecat";
 
 export default function SubscriptionModal({
   visible,
@@ -21,13 +24,14 @@ export default function SubscriptionModal({
   onCloseToMemberGate,
 }) {
   const {
-    isSubscribed: isMember,
-    subscriptionLoading: loading,
+    isMember,
+    loading,
     error,
-    refreshSubscription: refresh,
-  } = useMembershipStatus();
+    refreshMembership,
+  } = useMembership();
   const { theme } = useTheme();
   const [actionLoading, setActionLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
 
   const closeModal = () => {
     if (typeof onCloseToMemberGate === "function") {
@@ -59,7 +63,8 @@ export default function SubscriptionModal({
         return;
       }
 
-      const isActive = await refresh();
+      const membershipState = await refreshMembership();
+      const isActive = !!membershipState?.isMember;
 
       if (isActive) {
         Alert.alert("Success", "Membership is now active.");
@@ -78,6 +83,46 @@ export default function SubscriptionModal({
       );
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (actionLoading || restoreLoading) return;
+
+    try {
+      setRestoreLoading(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
+
+      if (!user) {
+        Alert.alert("Login required", "Please log in to continue.");
+        return;
+      }
+
+      await restoreRevenueCatPurchases(user.id);
+      const membershipState = await refreshMembership();
+      const isActive = !!membershipState?.isMember;
+
+      if (isActive) {
+        Alert.alert("Success", "Your purchases were restored.");
+        closeModal();
+      } else {
+        Alert.alert(
+          "No active purchase found",
+          "We couldn't find an active membership to restore for this account."
+        );
+      }
+    } catch (err) {
+      console.error("Restore flow error:", err);
+      Alert.alert(
+        "Restore failed",
+        "We couldn't restore purchases right now. Please try again."
+      );
+    } finally {
+      setRestoreLoading(false);
     }
   };
 
@@ -140,6 +185,19 @@ export default function SubscriptionModal({
                   Checking membership...
                 </ThemedText>
               </View>
+            ) : isMember ? (
+              <View style={styles.memberBox}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color={theme.success}
+                />
+                <ThemedText
+                  style={[styles.memberText, { color: theme.success }]}
+                >
+                  You're already a member
+                </ThemedText>
+              </View>
             ) : error ? (
               <View style={styles.errorBox}>
                 <Ionicons
@@ -156,7 +214,8 @@ export default function SubscriptionModal({
                     styles.button,
                     { backgroundColor: theme.primary, marginTop: 12 },
                   ]}
-                  onPress={refresh}
+                  onPress={refreshMembership}
+                  disabled={restoreLoading}
                 >
                   <ThemedText
                     style={[styles.buttonText, { color: theme.surface }]}
@@ -164,36 +223,57 @@ export default function SubscriptionModal({
                     Retry
                   </ThemedText>
                 </TouchableOpacity>
-              </View>
-            ) : isMember ? (
-              <View style={styles.memberBox}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={22}
-                  color={theme.success}
-                />
-                <ThemedText
-                  style={[styles.memberText, { color: theme.success }]}
+
+                <TouchableOpacity
+                  style={styles.restoreButton}
+                  onPress={handleRestore}
+                  disabled={actionLoading || restoreLoading}
                 >
-                  You're already a member
-                </ThemedText>
+                  {restoreLoading ? (
+                    <ActivityIndicator color={theme.primary} />
+                  ) : (
+                    <ThemedText
+                      style={[styles.restoreText, { color: theme.primary }]}
+                    >
+                      Restore Purchases
+                    </ThemedText>
+                  )}
+                </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: theme.primary }]}
-                onPress={handlePurchase}
-                disabled={actionLoading}
-              >
-                {actionLoading ? (
-                  <ActivityIndicator color={theme.surface} />
-                ) : (
-                  <ThemedText
-                    style={[styles.buttonText, { color: theme.surface }]}
-                  >
-                    Purchase Membership
-                  </ThemedText>
-                )}
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[styles.button, { backgroundColor: theme.primary }]}
+                  onPress={handlePurchase}
+                  disabled={actionLoading || restoreLoading}
+                >
+                  {actionLoading ? (
+                    <ActivityIndicator color={theme.surface} />
+                  ) : (
+                    <ThemedText
+                      style={[styles.buttonText, { color: theme.surface }]}
+                    >
+                      Purchase Membership
+                    </ThemedText>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.restoreButton}
+                  onPress={handleRestore}
+                  disabled={actionLoading || restoreLoading}
+                >
+                  {restoreLoading ? (
+                    <ActivityIndicator color={theme.primary} />
+                  ) : (
+                    <ThemedText
+                      style={[styles.restoreText, { color: theme.primary }]}
+                    >
+                      Restore Purchases
+                    </ThemedText>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
           </View>
         </Pressable>
@@ -300,5 +380,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 13,
     textAlign: "center",
+  },
+  restoreButton: {
+    marginTop: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 22,
+  },
+  restoreText: {
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

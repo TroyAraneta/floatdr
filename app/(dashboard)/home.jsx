@@ -9,6 +9,7 @@ import {
   Pressable,
   Linking,
   Alert,
+  InteractionManager,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -23,8 +24,8 @@ import ThemedCard from "../../components/ThemedCard";
 import ThemedButton from "../../components/ThemedButton";
 import { Colors } from "../../constants/colors";
 
-const TEMP_CONSULTATION_LINK = "https://example.com/consultations";
-const TEMP_SUPPLEMENTS_LINK = "https://example.com/supplements";
+const CONSULTATION_LINK = "https://floatdoctor1720.practicebetter.io/#/6931b9e1347f7cc047f8463e/bookings?s=69628f58b758cb04b2473adf&step=date";
+const SUPPLEMENTS_LINK = "https://us.fullscript.com/welcome/floatdoctor/store-start";
 
 const Home = () => {
   const router = useRouter();
@@ -32,18 +33,11 @@ const Home = () => {
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
+  const [showVideo, setShowVideo] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [isMuted, setIsMuted] = useState(true);
-
-  const player = useVideoPlayer(
-    require("../../assets/vid/Meet_the_Float_Doctor.mp4"),
-    (player) => {
-      player.loop = true;
-      player.muted = true;
-    }
-  );
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -69,16 +63,6 @@ const Home = () => {
     fetchProfile();
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      return () => {
-        try {
-          player?.pause?.();
-        } catch {}
-      };
-    }, [player])
-  );
-
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
@@ -88,10 +72,14 @@ const Home = () => {
   }, [fadeAnim]);
 
   useEffect(() => {
-    try {
-      if (player) player.muted = isMuted;
-    } catch {}
-  }, [isMuted, player]);
+    const task = InteractionManager.runAfterInteractions(() => {
+      setShowVideo(true);
+    });
+
+    return () => {
+      task.cancel();
+    };
+  }, []);
 
   const toggleMute = () => {
     setIsMuted((prev) => !prev);
@@ -150,14 +138,13 @@ const Home = () => {
             <View
               style={[styles.videoFrame, { backgroundColor: theme.uiBackground }]}
             >
-              <VideoView
-                player={player}
-                style={styles.video}
-                contentFit="contain"
-                fullscreenOptions={{ enable: false }}
-                allowsPictureInPicture={false}
-                showsControls={false}
-              />
+              {showVideo ? (
+                <HomeVideo isMuted={isMuted} />
+              ) : (
+                <View style={styles.videoPlaceholder}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                </View>
+              )}
 
               <View
                 style={[
@@ -209,8 +196,9 @@ const Home = () => {
           <View style={styles.healthSection}>
             <HealthFeatureCard
               icon="people-outline"
-              title="Community for Float and Mindfulness"
-              subtitle="Join the FloatDr forum community and connect with others"
+              title="Float Talk"
+              subtitle="All things float Community tips and Mindfulness Forum"
+              description="Float 101 tips, expert collaborations, and mindfulness techniques to help you enter the Ether."
               theme={theme}
               onPress={() => router.push("/(dashboard)/forum")}
             />
@@ -234,7 +222,7 @@ const Home = () => {
             theme={theme}
             onPress={() =>
               openExternalLink(
-                TEMP_CONSULTATION_LINK,
+                CONSULTATION_LINK,
                 "Unable to open the consultation website right now."
               )
             }
@@ -250,7 +238,7 @@ const Home = () => {
             theme={theme}
             onPress={() =>
               openExternalLink(
-                TEMP_SUPPLEMENTS_LINK,
+                SUPPLEMENTS_LINK,
                 "Unable to open the supplements website right now."
               )
             }
@@ -266,6 +254,45 @@ const Home = () => {
 export default Home;
 
 /* ---------- Local Components ---------- */
+
+const HomeVideo = ({ isMuted }) => {
+  const player = useVideoPlayer(
+    require("../../assets/vid/Meet_the_Float_Doctor.mp4"),
+    (nextPlayer) => {
+      nextPlayer.loop = true;
+      nextPlayer.muted = true;
+    }
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        try {
+          player?.pause?.();
+        } catch {}
+      };
+    }, [player])
+  );
+
+  useEffect(() => {
+    try {
+      if (player) {
+        player.muted = isMuted;
+      }
+    } catch {}
+  }, [isMuted, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.video}
+      contentFit="contain"
+      fullscreenOptions={{ enable: false }}
+      allowsPictureInPicture={false}
+      showsControls={false}
+    />
+  );
+};
 
 const PrimaryActionCard = ({
   icon,
@@ -385,7 +412,14 @@ const SecondaryActionCard = ({
   </ThemedCard>
 );
 
-const HealthFeatureCard = ({ icon, title, subtitle, onPress, theme }) => (
+const HealthFeatureCard = ({
+  icon,
+  title,
+  subtitle,
+  description,
+  onPress,
+  theme,
+}) => (
   <TouchableOpacity
     style={[
       styles.healthCard,
@@ -395,10 +429,13 @@ const HealthFeatureCard = ({ icon, title, subtitle, onPress, theme }) => (
     onPress={onPress}
     accessibilityRole="button"
     accessibilityLabel={title}
-    accessibilityHint={subtitle || undefined}
+    accessibilityHint={subtitle || description || undefined}
   >
     <View
-      style={[styles.healthCardIconChip, { backgroundColor: theme.uiBackground }]}
+      style={[
+        styles.healthCardIconChip,
+        { backgroundColor: theme.uiBackground },
+      ]}
     >
       <Ionicons name={icon} size={20} color={theme.icon} />
     </View>
@@ -414,6 +451,15 @@ const HealthFeatureCard = ({ icon, title, subtitle, onPress, theme }) => (
           style={[styles.healthCardSubtitle, { color: theme.textMuted }]}
         >
           {subtitle}
+        </ThemedText>
+      )}
+
+      {!!description && (
+        <ThemedText
+          muted
+          style={[styles.healthCardDescription, { color: theme.textMuted }]}
+        >
+          {description}
         </ThemedText>
       )}
     </View>
@@ -487,6 +533,13 @@ const styles = StyleSheet.create({
   video: {
     width: "100%",
     height: 182,
+  },
+
+  videoPlaceholder: {
+    width: "100%",
+    height: 182,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   videoBadge: {
@@ -649,6 +702,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     lineHeight: 16,
+  },
+
+  healthCardDescription: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 17,
+    opacity: 0.9,
   },
 
   /* kept from your file so nothing else is lost */

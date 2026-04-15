@@ -95,7 +95,10 @@ export default function Login() {
       return;
     }
 
-    setEmailServerError(error?.message || "Login failed. Please try again.");
+    if (msg.includes("invalid login credentials")) {
+      setEmailServerError("Email or password is incorrect.");
+      return;
+    }
   };
 
   return (

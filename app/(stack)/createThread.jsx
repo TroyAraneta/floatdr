@@ -18,11 +18,11 @@ import { Buffer } from "buffer";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/SupabaseAuthContext";
+import { useMembership } from "../../contexts/MembershipContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import useMembershipStatus from "../../hooks/useMembershipStatus";
 import SubscriptionModal from "../../components/SubscriptionModal";
 
 const CreateThread = () => {
@@ -32,12 +32,8 @@ const CreateThread = () => {
   const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
 
   const { user, loading: authLoading } = useAuth();
-  const {
-    isSubscribed: isMember,
-    subscriptionLoading: membershipLoading,
-    error: membershipError,
-    refreshSubscription: refreshMembership,
-  } = useMembershipStatus();
+  const { isMember, loading: membershipLoading, error: membershipError, refreshMembership } =
+    useMembership();
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -99,80 +95,37 @@ const CreateThread = () => {
     fetchCategory();
   }, [slug, authLoading, membershipLoading, user, isMember, router]);
 
-  const ensureMediaPermission = async () => {
-    try {
-      let permission = await ImagePicker.getMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      }
-
-      if (permission.granted) {
-        return true;
-      }
-
-      if (permission.canAskAgain === false) {
-        Alert.alert(
-          "Photo access needed",
-          "Photo access is currently blocked for this app. Please enable it in your phone settings.",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Open Settings",
-              onPress: () => {
-                Linking.openSettings?.();
-              },
-            },
-          ]
-        );
-        return false;
-      }
-
-      Alert.alert(
-        "Permission denied",
-        "Please allow photo access to choose an image."
-      );
-      return false;
-    } catch (error) {
-      Alert.alert(
-        "Permission error",
-        error?.message || "Unable to check photo permissions."
-      );
-      return false;
-    }
-  };
-
   const handleChooseImage = async () => {
-    const hasPermission = await ensureMediaPermission();
-    if (!hasPermission) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.9,
+      });
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.9,
-    });
-
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      const asset = result.assets[0];
-
-      Image.getSize(
-        asset.uri,
-        (width, height) => {
-          setImageRatio(width / height);
-          setImage(asset.uri);
-        },
-        () => {
-          setImage(asset.uri);
-        }
-      );
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        const asset = result.assets[0];
+        Image.getSize(
+          asset.uri,
+          (width, height) => {
+            setImageRatio(width / height);
+            setImage(asset.uri);
+          },
+          () => {
+            setImage(asset.uri);
+          }
+        );
+      }
+    } catch (error) {
+      Alert.alert("Error", "Unable to open image picker.");
     }
   };
 
-  const uploadImage = async (uri) => {
+  const uploadImage = async (uri, threadId) => {
     try {
       setUploading(true);
 
-      if (!user?.id) {
+      if (!user?.id || !threadId) {
         throw new Error("Not logged in.");
       }
 
@@ -181,7 +134,7 @@ const CreateThread = () => {
       const normalizedExt = rawExt === "jpg" ? "jpeg" : rawExt;
       const storedExt = rawExt === "jpeg" ? "jpg" : rawExt;
       const fileName = `${Date.now()}.${storedExt}`;
-      const filePath = `${user.id}/${fileName}`;
+      const filePath = `${threadId}/${fileName}`;
       const mimeType = `image/${normalizedExt}`;
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -198,7 +151,19 @@ const CreateThread = () => {
         });
 
       if (error) {
-        console.log("CreateThread storage upload error:", JSON.stringify(error, null, 2));
+        Alert.alert(
+          "Storage Upload Error",
+          JSON.stringify(
+            {
+              message: error?.message || null,
+              name: error?.name || null,
+              statusCode: error?.statusCode || null,
+              error: error?.error || null,
+            },
+            null,
+            2
+          )
+        );
         throw error;
       }
 
@@ -208,7 +173,10 @@ const CreateThread = () => {
         throw new Error("Failed to get public image URL.");
       }
 
-      return data.publicUrl;
+      return {
+        publicUrl: data.publicUrl,
+        filePath,
+      };
     } catch (err) {
       Alert.alert("Upload failed", err?.message || "Unable to upload image.");
       return null;
@@ -254,29 +222,30 @@ const CreateThread = () => {
     }
 
     submittingRef.current = true;
+    let postedSuccessfully = false;
 
     try {
       setLoading(true);
+      let uploadedFilePath = null;
+      const { data: createdThread, error } = await supabase
+        .from("forum_threads")
+        .insert([
+          {
+            category_id: category.id,
+            author_id: user.id,
+            title: title.trim(),
+            body: content.trim(),
+            image_url: null,
+          },
+        ])
+        .select("id")
+        .single();
 
-      const imageUrl = image ? await uploadImage(image) : null;
+      if (error || !createdThread?.id) {
+        const createError = error || new Error("Unable to create post.");
 
-      if (image && !imageUrl) {
-        return;
-      }
-
-      const { error } = await supabase.from("forum_threads").insert([
-        {
-          category_id: category.id,
-          author_id: user.id,
-          title: title.trim(),
-          body: content.trim(),
-          image_url: imageUrl,
-        },
-      ]);
-
-      if (error) {
-        if (isPermissionDenied(error)) {
-          await refreshMembership?.();
+        if (isPermissionDenied(createError)) {
+          await refreshMembership();
           Alert.alert(
             "Members-only",
             "Your membership may not be active. Please check your subscription."
@@ -284,9 +253,43 @@ const CreateThread = () => {
           return;
         }
 
-        throw error;
+        throw createError;
       }
 
+      if (image) {
+        const uploadResult = await uploadImage(image, createdThread.id);
+
+        if (!uploadResult?.publicUrl) {
+          await supabase
+            .from("forum_threads")
+            .delete()
+            .eq("id", createdThread.id)
+            .eq("author_id", user.id);
+          return;
+        }
+
+        uploadedFilePath = uploadResult.filePath;
+
+        const { error: updateError } = await supabase
+          .from("forum_threads")
+          .update({ image_url: uploadResult.publicUrl })
+          .eq("id", createdThread.id)
+          .eq("author_id", user.id);
+
+        if (updateError) {
+          if (uploadedFilePath) {
+            await supabase.storage.from("post-images").remove([uploadedFilePath]);
+          }
+          await supabase
+            .from("forum_threads")
+            .delete()
+            .eq("id", createdThread.id)
+            .eq("author_id", user.id);
+          throw updateError;
+        }
+      }
+
+      postedSuccessfully = true;
       Alert.alert("Posted!", "Your discussion is live.");
       router.replace("/(dashboard)/forum");
     } catch (err) {
@@ -294,10 +297,12 @@ const CreateThread = () => {
     } finally {
       submittingRef.current = false;
       setLoading(false);
-      setTitle("");
-      setContent("");
-      setImage(null);
-      setImageRatio(1);
+      if (postedSuccessfully) {
+        setTitle("");
+        setContent("");
+        setImage(null);
+        setImageRatio(1);
+      }
     }
   }, [
     user,

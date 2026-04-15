@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   Image,
-  Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -194,7 +193,7 @@ export default function EditThread() {
       const storedExt = getExt(cleanUri);
       const normalizedExt = storedExt === "jpg" ? "jpeg" : storedExt;
       const fileName = `${Date.now()}.${storedExt}`;
-      const filePath = `${user.id}/${threadIdStr}/${fileName}`;
+      const filePath = `${threadIdStr}/${fileName}`;
       const mimeType = `image/${normalizedExt}`;
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -231,64 +230,18 @@ export default function EditThread() {
     [threadIdStr]
   );
 
-  const ensureMediaPermission = useCallback(async () => {
-    try {
-      let permission = await ImagePicker.getMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      }
-
-      if (permission.granted) {
-        return true;
-      }
-
-      if (permission.canAskAgain === false) {
-        Alert.alert(
-          "Photo access needed",
-          "Photo access is currently blocked for this app. Please enable it in your phone settings.",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Open Settings",
-              onPress: () => {
-                Linking.openSettings?.();
-              },
-            },
-          ]
-        );
-        return false;
-      }
-
-      Alert.alert(
-        "Permission denied",
-        "Please allow photo access to choose an image."
-      );
-      return false;
-    } catch (error) {
-      Alert.alert(
-        "Permission error",
-        error?.message || "Unable to check photo permissions."
-      );
-      return false;
-    }
-  }, []);
-
   const handleReplacePhoto = useCallback(async () => {
     if (!canEdit || saving || uploading || deletingPost) return;
 
-    const hasPermission = await ensureMediaPermission();
-    if (!hasPermission) return;
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.9,
-    });
-
-    if (result.canceled || !result.assets?.length) return;
-
     try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
       setUploading(true);
       const publicUrl = await uploadPickedImage(result.assets[0].uri);
       setImageUrl(publicUrl);
@@ -298,14 +251,7 @@ export default function EditThread() {
     } finally {
       setUploading(false);
     }
-  }, [
-    canEdit,
-    saving,
-    uploading,
-    deletingPost,
-    ensureMediaPermission,
-    uploadPickedImage,
-  ]);
+  }, [canEdit, saving, uploading, deletingPost, uploadPickedImage]);
 
   const handleRemovePhoto = useCallback(async () => {
     if (!canEdit || saving || uploading || deletingPost || !imageUrl) return;

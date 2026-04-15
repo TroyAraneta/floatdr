@@ -292,7 +292,9 @@ export default function ForumList({ category: initialCategory }) {
           // Optimistic UI update
           setThreads((prev) => prev.filter((thread) => thread.id !== id));
 
-          const { error } = await supabase.from("forum_threads").delete().eq("id", id);
+          const { error } = await supabase.rpc("delete_forum_thread_cascade", {
+            p_thread_id: id,
+          });
 
           if (error) {
             console.error("Delete thread error:", error);
@@ -323,8 +325,8 @@ export default function ForumList({ category: initialCategory }) {
       style={styles.threadCard}
       onPress={() =>
         router.push({
-          pathname: "/(dashboard)/thread",
-          params: { threadId: item.id },
+          pathname: "/forum/thread",
+          params: { id: item.id },
         })
       }
     >

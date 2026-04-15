@@ -8,6 +8,10 @@ import { configureRevenueCat } from "../lib/revenuecat";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import {
+  MembershipProvider,
+  useMembership,
+} from "../contexts/MembershipContext";
 
 // Prevent splash from auto-hiding until fonts are ready
 SplashScreen.preventAutoHideAsync();
@@ -19,39 +23,57 @@ function AuthGate({ children }) {
   const router = useRouter();
   const segments = useSegments();
   const { user, loading, isEmailVerified } = useAuth();
+  const { isAdmin, loading: membershipLoading } = useMembership();
 
   useEffect(() => {
     if (loading) return;
 
-    const group = segments[0]; // "(auth)" | "(dashboard)" | "(stack)" | "forum" | etc.
+    const group = segments[0];
     const inAuth = group === "(auth)";
-    const inDashboard = group === "(dashboard)";
-    const inStack = group === "(stack)";
+    const isForumRoute = group === "forum" || group === "(dashboard)";
+    const isStackRoute = group === "(stack)";
+    const isAdminRoute = group === "admin";
+    const publicRoutes = ["(auth)", "index"];
+    const isPublicRoute = publicRoutes.includes(group);
+    const currentPath = `/${segments.filter(Boolean).join("/")}`;
+    const replaceIfNeeded = (target) => {
+      if (currentPath !== target) {
+        router.replace(target);
+      }
+    };
 
-    // 1) Logged in but NOT verified => force verifyEmail
     if (user && !isEmailVerified) {
       const isVerifyScreen = inAuth && segments[1] === "verifyEmail";
       if (!isVerifyScreen) {
-        router.replace({
-          pathname: "/(auth)/verifyEmail",
-          params: { email: user.email || "" },
-        });
+        if (currentPath !== "/(auth)/verifyEmail") {
+          router.replace({
+            pathname: "/(auth)/verifyEmail",
+            params: { email: user.email || "" },
+          });
+        }
       }
       return;
     }
 
-    // 2) Logged in and verified, but still in auth screens => go home
     if (user && isEmailVerified && inAuth) {
-      router.replace("/(dashboard)/home");
+      replaceIfNeeded("/(dashboard)/home");
       return;
     }
 
-    // 3) Not logged in but trying to access protected stacks => send to login
-    if (!user && (inDashboard || inStack)) {
-      router.replace("/(auth)/login");
+    const isProtectedRoute =
+      isForumRoute || isStackRoute || isAdminRoute || !isPublicRoute;
+
+    if (!user && isProtectedRoute) {
+      replaceIfNeeded("/(auth)/login");
       return;
     }
-  }, [user, loading, isEmailVerified, segments, router]);
+
+    if (isAdminRoute && membershipLoading) return;
+
+    if (user && isAdminRoute && !isAdmin) {
+      replaceIfNeeded("/(dashboard)/home");
+    }
+  }, [user, loading, membershipLoading, isEmailVerified, isAdmin, segments, router]);
 
   return children;
 }
@@ -67,7 +89,6 @@ function RevenueCatBootstrap() {
 }
 
 export default function RootLayout() {
-
   const [fontsLoaded] = useFonts({
     TimesNewRoman: require("../assets/fonts/times.ttf"),
     TimesNewRomanBold: require("../assets/fonts/timesbd.ttf"),
@@ -85,13 +106,15 @@ export default function RootLayout() {
 
   return (
     <SupabaseAuthProvider>
-      <ThemeProvider>
-        <StatusBar style="auto" />
-        <RevenueCatBootstrap />
-        <AuthGate>
-          <Slot />
-        </AuthGate>
-      </ThemeProvider>
+      <MembershipProvider>
+        <ThemeProvider>
+          <StatusBar style="auto" />
+          <RevenueCatBootstrap />
+          <AuthGate>
+            <Slot />
+          </AuthGate>
+        </ThemeProvider>
+      </MembershipProvider>
     </SupabaseAuthProvider>
   );
 }

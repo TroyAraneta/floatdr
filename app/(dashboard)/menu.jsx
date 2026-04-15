@@ -18,9 +18,8 @@ import ThemedButton from "../../components/ThemedButton";
 import Spacer from "../../components/Spacer";
 import SubscriptionModal from "../../components/SubscriptionModal";
 import { Colors } from "../../constants/colors";
+import { useMembership } from "../../contexts/MembershipContext";
 import { useTheme } from "../../contexts/ThemeContext";
-import useMembershipStatus from "../../hooks/useMembershipStatus";
-import useAdminStatus from "../../hooks/useAdminStatus";
 
 const FALLBACK_AVATAR =
   "https://cdn-icons-png.flaticon.com/512/149/149071.png";
@@ -28,9 +27,8 @@ const FALLBACK_AVATAR =
 export default function Menu() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { isSubscribed: isMember, subscriptionLoading: membershipLoading } =
-    useMembershipStatus();
-  const { isHeadAdmin } = useAdminStatus();
+  const { isMember, isAdmin, isHeadAdmin, loading: membershipLoading } =
+    useMembership();
 
   const [loading, setLoading] = useState(true);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
@@ -286,6 +284,13 @@ export default function Menu() {
             label="Settings"
             onPress={() => router.push("/(stack)/settings")}
           />
+          {isAdmin && (
+            <MenuItem
+              icon="flag-outline"
+              label="Manage Reports"
+              onPress={() => router.push("/(stack)/manageReports")}
+            />
+          )}
           {isHeadAdmin && (
             <MenuItem
               icon="shield-checkmark-outline"

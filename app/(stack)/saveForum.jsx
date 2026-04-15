@@ -19,18 +19,17 @@ import ThemedView from "../../components/ThemedView";
 import ThemedCard from "../../components/ThemedCard";
 import ThemedButton from "../../components/ThemedButton";
 import Spacer from "../../components/Spacer";
+import { useMembership } from "../../contexts/MembershipContext";
 import { useTheme } from "../../contexts/ThemeContext";
-import useMembershipStatus from "../../hooks/useMembershipStatus";
 import SubscriptionModal from "../../components/SubscriptionModal";
 
 const FALLBACK_AVATAR =
   "https://cdn-icons-png.flaticon.com/512/149/149071.png";
 
-export default function SaveForum() {
+  export default function SaveForum() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { isSubscribed: isMember, subscriptionLoading: membershipLoading } =
-    useMembershipStatus();
+  const { isMember, loading: membershipLoading } = useMembership();
 
   const [savedThreads, setSavedThreads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,6 +54,12 @@ export default function SaveForum() {
       }
     }, [membershipLoading, isMember])
   );
+
+  useEffect(() => {
+    if (!membershipLoading && isMember) {
+      setShowMemberModal(false);
+    }
+  }, [membershipLoading, isMember]);
 
   const fetchSaved = useCallback(async () => {
     try {
@@ -317,7 +322,9 @@ export default function SaveForum() {
         onClose={() => setShowSubscriptionModal(false)}
         onCloseToMemberGate={() => {
           setShowSubscriptionModal(false);
-          setShowMemberModal(true);
+          if (!isMember) {
+            setShowMemberModal(true);
+          }
         }}
       />
     </ThemedView>
