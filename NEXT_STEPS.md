@@ -5,6 +5,18 @@
 - Remove hardcoded Supabase fallback credentials from `lib/supabase.js`.
   - Production apps should not silently fall back to a live project URL/key when env vars are missing.
 
+- Finalize RevenueCat integration and subscription flow.
+  - Verify that iOS and Android API keys are correctly configured in environment variables.
+  - Ensure that the entitlement ID matches `EXPO_PUBLIC_REVENUECAT_ACTIVE_ENTITLEMENT_ID`.
+  - Validate that subscription status is correctly reflected in the app and synced with the `memberships` table.
+  - Test purchase, restore purchase, and entitlement expiration flows on both platforms.
+  - Confirm fallback logic between RevenueCat and Supabase membership state behaves as expected.
+  - Review UI/UX for subscription modal and ensure consistent gating across features.
+
+- Document RevenueCat setup more explicitly.
+  - Include product IDs, entitlement mapping, and expected subscription tiers.
+  - Ensure incoming developers can fully reproduce subscription behavior without relying on external knowledge.
+
 - Document and migrate the full database contract into source control.
   - The app depends on RPCs such as `get_threads_with_top_comment` and `delete_user_account`, but their SQL is not present in this repo.
   - Incoming developers will otherwise be blocked by hidden backend state.
