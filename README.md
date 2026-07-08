@@ -14,6 +14,15 @@ This repository contains an Expo / React Native mobile app for Float Doctor, a w
 
 The codebase appears to have been built as an MVP by a solo developer. The core user flows are present, but a number of architectural and operational details are still implicit in UI code and Supabase configuration.
 
+## Screenshots
+
+| | | |
+|---|---|---|
+| ![Login](screenshots/login.jpg) | ![Register](screenshots/register.jpg) | ![Home](screenshots/home.jpg) |
+| ![Forum](screenshots/forum.jpg) | ![Create Thread](screenshots/create-thread.jpg) | ![Library](screenshots/library.jpg) |
+| ![Menu](screenshots/menu.jpg) | ![Edit Profile](screenshots/edit-profile.jpg) | ![Settings](screenshots/settings.jpg) |
+| ![Schedule](screenshots/schedule.jpg) | ![Lab Test](screenshots/lab-test.jpg) | |
+
 ## Tech Stack
 
 - React Native `0.81`
